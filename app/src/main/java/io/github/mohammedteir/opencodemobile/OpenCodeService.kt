@@ -25,6 +25,7 @@ class OpenCodeService : Service() {
     @Volatile private var stopping = false
     private var wakeLock: PowerManager.WakeLock? = null
     private val starting = AtomicBoolean(false)
+    @Volatile private var sharedStorageEnabledAtStart = false
 
     override fun onCreate() {
         super.onCreate()
@@ -42,10 +43,13 @@ class OpenCodeService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification())
         }
-        // Snapshot the mount state for this server lifecycle; MainActivity warns if it changes.
-        getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit()
-            .putBoolean(PREF_SHARED_STORAGE_MOUNTED, StorageAccessManager.sharedStorageDirectory() != null)
-            .apply()
+        // Snapshot only on first start. Repeated launch intents must not hide permission changes.
+        if (!isRunning) {
+            sharedStorageEnabledAtStart = StorageAccessManager.sharedStorageDirectory() != null
+            getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit()
+                .putBoolean(PREF_SHARED_STORAGE_MOUNTED, sharedStorageEnabledAtStart)
+                .apply()
+        }
         intent?.getStringExtra(EXTRA_WORKING_DIRECTORY)?.let { requested ->
             val rootfs = File(filesDir, "rootfs")
             if (StorageAccessManager.isGuestWorkspaceAvailable(rootfs, requested)) {
@@ -96,7 +100,8 @@ class OpenCodeService : Service() {
                             this,
                             listOf("/usr/local/bin/opencode", "serve", "--port", "4096", "--hostname", "127.0.0.1"),
                             mapOf("OPENCODE_PASSWORD" to password),
-                            workingDirectory = workspace
+                            workingDirectory = workspace,
+                            includeSharedStorage = sharedStorageEnabledAtStart
                         )
                         appendLog("OpenCode workspace directory: $workspace\n")
                         process = child
