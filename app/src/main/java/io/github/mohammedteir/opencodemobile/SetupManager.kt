@@ -104,7 +104,6 @@ class SetupManager(private val context: Context) {
         downloadVerified(update.url, archive, update.sha256, progress) {
             log(it)
         }
-        try {
             val target = File(rootfs, "usr/local/bin/opencode")
             val staging = File(rootfs, ".opencode-update-${System.currentTimeMillis()}")
             val backup = File(rootfs, "usr/local/bin/opencode.previous")
@@ -123,7 +122,6 @@ class SetupManager(private val context: Context) {
             } finally {
                 if (staging.exists()) staging.delete()
             }
-        }
     }
 
     suspend fun installRootfs(log: (String) -> Unit, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
@@ -238,7 +236,7 @@ class SetupManager(private val context: Context) {
         val metadata = File(dest.parentFile, dest.name + ".part.properties")
         val properties = Properties().apply {
             if (partial.isFile && metadata.isFile) {
-                runCatching { metadata.inputStream().use(::load) }
+                runCatching { metadata.inputStream().use { input -> load(input) } }
             }
         }
         val savedUrl = properties.getProperty("url")
