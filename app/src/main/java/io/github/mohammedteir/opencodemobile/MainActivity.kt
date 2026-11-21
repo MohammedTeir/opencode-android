@@ -76,7 +76,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        StartupDiagnostics.mark(this, "MainActivity.onCreate entered")
         setup = SetupManager(this)
+        StartupDiagnostics.mark(this, "SetupManager initialized")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
@@ -98,8 +100,11 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
         }
+        StartupDiagnostics.mark(this, "Building setup screen")
         buildSetupScreen()
+        StartupDiagnostics.mark(this, "Setup screen built")
         refreshButtons()
+        StartupDiagnostics.mark(this, "MainActivity.onCreate completed")
     }
 
     override fun onResume() {
@@ -142,6 +147,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun buildSetupScreen() {
+        StartupDiagnostics.mark(this, "buildSetupScreen entered")
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#101010"))
@@ -164,6 +170,7 @@ class MainActivity : ComponentActivity() {
         }
         val wordmark = ImageView(this).apply {
             setImageResource(R.drawable.opencode_wordmark_dark)
+            StartupDiagnostics.mark(this@MainActivity, "OpenCode wordmark resource loaded")
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "OpenCode"
         }
@@ -398,6 +405,18 @@ class MainActivity : ComponentActivity() {
         activityHeader.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         activityToggle = text("Show  ↓", 11f, "#A9A2A2", true)
         activityHeader.addView(activityToggle)
+        val shareDiagnostics = text("Share report", 11f, "#D8D2D2", true).apply {
+            setPadding(dp(12), dp(6), dp(2), dp(6))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                runCatching { StartupDiagnostics.shareReport(this@MainActivity) }
+                    .onFailure {
+                        Toast.makeText(this@MainActivity, "Could not share diagnostic report: ${it.message}", Toast.LENGTH_LONG).show()
+                    }
+            }
+        }
+        activityHeader.addView(shareDiagnostics)
         activityPanel = ScrollView(this).apply {
             isFillViewport = false
             visibility = View.GONE
