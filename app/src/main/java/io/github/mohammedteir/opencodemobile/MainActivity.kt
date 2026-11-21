@@ -23,6 +23,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -41,6 +42,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
@@ -52,6 +54,11 @@ class MainActivity : ComponentActivity() {
     private lateinit var smokeButton: Button
     private lateinit var installButton: Button
     private lateinit var updateButton: Button
+    private lateinit var rootAccessButton: Button
+    private lateinit var rootDiagnosticsButton: Button
+    private lateinit var rootHardLinkButton: Button
+    private lateinit var rootStatus: TextView
+    private lateinit var rootHardLinkSwitch: CheckBox
     private lateinit var serverButton: Button
     private lateinit var activityPanel: ScrollView
     private lateinit var activityToggle: TextView
@@ -216,6 +223,53 @@ class MainActivity : ComponentActivity() {
         })
         page.addView(maintenance)
 
+        val rootCard = card("#1B1919", 14, "#302B2B").apply {
+            setPadding(dp(13), dp(12), dp(13), dp(12))
+        }
+        rootCard.addView(text("OPTIONAL ROOT SUPPORT", 10f, "#D8D2D2", true).apply {
+            letterSpacing = 0.08f
+        })
+        rootCard.addView(text(
+            "Root is never required. Check availability only when you choose; Android will ask your root manager for authorization.",
+            11f, "#A9A2A2", false
+        ).apply {
+            setPadding(0, dp(5), 0, dp(9))
+        })
+        rootStatus = text("Root status has not been checked.", 11f, "#A9A2A2", true).apply {
+            setPadding(0, dp(7), 0, dp(9))
+        }
+        rootCard.addView(rootStatus)
+        rootAccessButton = compactButton("Check root", false) { requestRootAccessCheck() }
+        rootDiagnosticsButton = compactButton("Diagnostics", false) { requestRootDiagnostics() }
+        rootHardLinkButton = compactButton("Test hard links", false) { requestRootHardLinkTest() }
+        rootCard.addView(rootAccessButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
+        val rootTools = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        rootTools.addView(rootDiagnosticsButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(4) })
+        rootTools.addView(rootHardLinkButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(4) })
+        rootCard.addView(rootTools, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
+            topMargin = dp(7)
+        })
+        rootHardLinkSwitch = CheckBox(this).apply {
+            text = "Use root-assisted hard links during Debian installation"
+            textSize = 11f
+            setTextColor(Color.parseColor("#D8D2D2"))
+            buttonTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#D8D2D2"))
+            isEnabled = RootAccessManager.isRootHardLinksVerified(this@MainActivity)
+            isChecked = RootAccessManager.isRootHardLinksEnabled(this@MainActivity)
+            setOnCheckedChangeListener { _, checked ->
+                RootAccessManager.setRootHardLinksEnabled(this@MainActivity, checked)
+                appendLog(if (checked) "Root-assisted Debian hard links enabled by user.\n" else "Root-assisted Debian hard links disabled by user.\n")
+            }
+        }
+        rootCard.addView(rootHardLinkSwitch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(5)
+        })
+        page.addView(rootCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
+
         page.addView(text("Runs locally at 127.0.0.1 · Android storage is not mounted into Debian.", 10f, "#777070", false).apply {
             setPadding(dp(2), dp(5), dp(2), dp(10))
         })
@@ -245,7 +299,7 @@ class MainActivity : ComponentActivity() {
             setTextColor(Color.parseColor("#C7C0C0"))
             setPadding(dp(12), dp(12), dp(12), dp(12))
             setTextIsSelectable(true)
-            text = "No activity yet."
+            text = RootOperationLog.read(this@MainActivity).ifBlank { "No activity yet." }
         }
         activityPanel.addView(logs)
         activityHeader.setOnClickListener {
@@ -457,6 +511,76 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun requestRootAccessCheck() {
+        runRootOperation("Check root access") {
+            RootAccessManager.checkAccess()
+        }
+    }
+
+    private fun requestRootDiagnostics() {
+        confirmRootOperation(
+            "Run root diagnostics?",
+            "This performs read-only checks of UID, SELinux status, app-private directory permissions, and filesystem capacity. It does not change system settings."
+        ) {
+            runRootOperation("Root diagnostics") {
+                RootAccessManager.runDiagnostics(cacheDir, File(filesDir, "rootfs"))
+            }
+        }
+    }
+
+    private fun requestRootHardLinkTest() {
+        confirmRootOperation(
+            "Test native hard links?",
+            "This creates two temporary files inside this app's private cache directory, verifies whether they share an inode, and removes the probe files. It does not change Debian or system files."
+        ) {
+            runRootOperation("Root hard-link test") {
+                RootAccessManager.testHardLinks(cacheDir)
+            }
+        }
+    }
+
+    private fun confirmRootOperation(title: String, message: String, action: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue") { _, _ -> action() }
+            .show()
+    }
+
+    private fun runRootOperation(label: String, operation: suspend () -> RootAccessManager.OperationResult) {
+        setBusy(true, "$label…")
+        lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) { operation() }
+                rootStatus.text = result.message
+                rootStatus.setTextColor(Color.parseColor(if (result.success) "#A8D5B5" else "#E3B0A8"))
+                if (label == "Root hard-link test") {
+                    RootAccessManager.setRootHardLinksVerified(this@MainActivity, result.success)
+                    rootHardLinkSwitch.isEnabled = result.success
+                    rootHardLinkSwitch.isChecked = result.success && RootAccessManager.isRootHardLinksEnabled(this@MainActivity)
+                }
+                RootOperationLog.append(this@MainActivity, result.title, result.success, result.message + "\n" + result.output)
+                appendLog("[$label] ${result.message}\n")
+                if (result.output.isNotBlank()) appendLog(result.output + "\n")
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle(result.title)
+                    .setMessage(result.message + if (result.output.isNotBlank()) "\n\n" + result.output.take(6_000) else "")
+                    .setPositiveButton("OK", null)
+                    .show()
+            } catch (error: Exception) {
+                val message = error.message ?: "Unexpected root operation error."
+                rootStatus.text = message
+                rootStatus.setTextColor(Color.parseColor("#E3B0A8"))
+                RootOperationLog.append(this@MainActivity, label, false, message)
+                appendLog("[$label] failed: $message\n")
+            } finally {
+                setBusy(false)
+                refreshButtons()
+            }
+        }
+    }
+
     private fun requestBatteryExemption() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         val powerManager = getSystemService(PowerManager::class.java)
@@ -603,6 +727,10 @@ class MainActivity : ComponentActivity() {
         installButton.isEnabled = !busy && setup.hasRootfs() && !setup.isReady()
         serverButton.isEnabled = !busy && setup.isReady()
         updateButton.isEnabled = !busy && setup.isReady()
+        rootAccessButton.isEnabled = !busy
+        rootDiagnosticsButton.isEnabled = !busy
+        rootHardLinkButton.isEnabled = !busy
+        rootHardLinkSwitch.isEnabled = !busy && RootAccessManager.isRootHardLinksVerified(this)
         progress.visibility = if (busy) View.VISIBLE else View.GONE
         if (busy) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
