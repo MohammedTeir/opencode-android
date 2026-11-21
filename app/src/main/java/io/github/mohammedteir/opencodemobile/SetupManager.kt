@@ -336,6 +336,9 @@ class SetupManager(private val context: Context) {
                         createdHardLinks++
                         continue
                     } catch (e: ErrnoException) {
+                        // A failed link syscall should not leave a partial destination
+                        // that would prevent the regular-file fallback from succeeding.
+                        Files.deleteIfExists(link)
                         nativeHardLinksSupported = false
                         log(
                             "Native hard-link creation failed (errno ${e.errno}: ${Os.strerror(e.errno)}); " +
