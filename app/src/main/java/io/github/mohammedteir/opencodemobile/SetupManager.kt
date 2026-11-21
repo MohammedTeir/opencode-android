@@ -19,6 +19,7 @@ import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.security.MessageDigest
+import java.util.Properties
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
@@ -99,12 +100,11 @@ class SetupManager(private val context: Context) {
         check(hasRootfs() && hasOpenCodeBinary()) { "Install OpenCode before updating it." }
         val installed = installedVersion()?.let(::parseVersion) ?: error("Installed OpenCode version is unknown.")
         check(compareVersions(update.version, installed) > 0) { "OpenCode is already up to date." }
-        val archive = File(context.cacheDir, "opencode-${update.displayVersion}.tar.gz")
-        log("Downloading OpenCode V${update.version} ARM64 update…")
-        download(update.url, archive, progress)
+        val archive = File(downloadDirectory(), "opencode-${update.displayVersion}-linux-arm64.tar.gz")
+        downloadVerified(update.url, archive, update.sha256, progress) {
+            log(it)
+        }
         try {
-            log("Checking update SHA-256…")
-            check(sha256(archive) == update.sha256) { "Update checksum mismatch; download removed." }
             val target = File(rootfs, "usr/local/bin/opencode")
             val staging = File(rootfs, ".opencode-update-${System.currentTimeMillis()}")
             val backup = File(rootfs, "usr/local/bin/opencode.previous")
@@ -123,8 +123,6 @@ class SetupManager(private val context: Context) {
             } finally {
                 if (staging.exists()) staging.delete()
             }
-        } finally {
-            archive.delete()
         }
     }
 
@@ -178,19 +176,9 @@ class SetupManager(private val context: Context) {
 
     suspend fun installOpenCodeAndPackages(log: (String) -> Unit, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
         check(hasRootfs()) { "Install the Debian rootfs first." }
-        val archive = File(context.cacheDir, "opencode-v2.3.2-linux-arm64.tar.gz")
-        log("Downloading official OpenCode V2.3.2 ARM64 release…")
-        download(OPENCODE_URL, archive, progress)
-        log("Checking OpenCode V2.3.2 SHA-256…")
-        if (sha256(archive) != OPENCODE_SHA256) {
-            archive.delete()
-            error("OpenCode checksum mismatch; download removed.")
-        }
-        try {
-            installOpenCodeTar(archive, File(rootfs, "usr/local/bin/opencode"))
-        } finally {
-            archive.delete()
-        }
+        val archive = File(downloadDirectory(), "opencode-${OPENCODE_VERSION}-linux-arm64.tar.gz")
+        downloadVerified(OPENCODE_URL, archive, OPENCODE_SHA256, progress) { log(it) }
+        installOpenCodeTar(archive, File(rootfs, "usr/local/bin/opencode"))
         postExtractFixes(rootfs, log)
         writeOpenCodeDefaults()
         log("Installing Git, ripgrep, curl, CA certificates and procps…")
@@ -206,29 +194,148 @@ class SetupManager(private val context: Context) {
         log("OpenCode V$OPENCODE_VERSION and required packages installed.")
     }
 
+    private fun downloadDirectory(): File =
+        File(context.filesDir, "downloads").apply { check(isDirectory || mkdirs()) {
+            "Could not create persistent download cache."
+        } }
+
+    private fun downloadVerified(
+        url: String,
+        destination: File,
+        expectedSha256: String,
+        progress: (Long, Long) -> Unit,
+        log: (String) -> Unit
+    ) {
+        destination.parentFile?.let { check(it.isDirectory || it.mkdirs()) {
+            "Could not create download cache directory."
+        } }
+        if (destination.isFile) {
+            if (runCatching { sha256(destination) == expectedSha256 }.getOrDefault(false)) {
+                log("Reusing cached OpenCode archive; SHA-256 verified.")
+                progress(destination.length(), destination.length())
+                return
+            }
+            destination.delete()
+            log("Discarded an invalid cached OpenCode archive.")
+        }
+        log("Downloading OpenCode runtime archive…")
+        download(url, destination, progress)
+        log("Verifying OpenCode archive SHA-256…")
+        if (sha256(destination) != expectedSha256) {
+            destination.delete()
+            error("OpenCode checksum mismatch; downloaded archive removed.")
+        }
+        log("OpenCode archive downloaded and verified.")
+    }
+
+    /**
+     * Downloads to a .part file and retains it after network failures. A partial
+     * download is resumed only when its sidecar identifies the same URL and the
+     * server supplied an ETag or Last-Modified validator for If-Range.
+     */
     private fun download(url: String, dest: File, progress: (Long, Long) -> Unit) {
         val partial = File(dest.parentFile, dest.name + ".part")
-        partial.delete()
-        val request = Request.Builder().url(url).build()
-        http.newCall(request).execute().use { response ->
-            check(response.isSuccessful) { "Download failed: HTTP ${response.code}" }
+        val metadata = File(dest.parentFile, dest.name + ".part.properties")
+        val properties = Properties().apply {
+            if (partial.isFile && metadata.isFile) {
+                runCatching { metadata.inputStream().use(::load) }
+            }
+        }
+        val savedUrl = properties.getProperty("url")
+        val etag = properties.getProperty("etag").orEmpty()
+        val lastModified = properties.getProperty("lastModified").orEmpty()
+        val canResume = partial.isFile && partial.length() > 0L &&
+            savedUrl == url && (etag.isNotBlank() || lastModified.isNotBlank())
+
+        if (partial.exists() && !canResume) {
+            partial.delete()
+            metadata.delete()
+        }
+
+        val offset = if (canResume) partial.length() else 0L
+        val requestBuilder = Request.Builder()
+            .url(url)
+            .header("Accept-Encoding", "identity")
+            .header("User-Agent", "OpenCode-Mobile")
+        if (offset > 0L) {
+            requestBuilder.header("Range", "bytes=$offset-")
+            requestBuilder.header("If-Range", etag.ifBlank { lastModified })
+            progress(offset, -1L)
+        }
+
+        http.newCall(requestBuilder.build()).execute().use { response ->
+            if (offset > 0L && response.code == 416) {
+                partial.delete()
+                metadata.delete()
+                return download(url, dest, progress)
+            }
+
+            val append = offset > 0L && response.code == 206
+            if (append) {
+                val range = response.header("Content-Range")
+                val start = Regex("^bytes (\\d+)-(\\d+)/(\\d+|\\*)$", RegexOption.IGNORE_CASE)
+                    .matchEntire(range.orEmpty())
+                    ?.groupValues?.get(1)?.toLongOrNull()
+                if (start != offset) {
+                    partial.delete()
+                    metadata.delete()
+                    return download(url, dest, progress)
+                }
+            } else {
+                check(response.code == 200) {
+                    "Download failed: HTTP ${response.code}"
+                }
+                // A server that ignores Range returns the complete object. Never
+                // append it to an existing partial file.
+                if (offset > 0L) {
+                    partial.delete()
+                    metadata.delete()
+                }
+            }
+
             val body = response.body ?: error("Empty response")
-            val total = body.contentLength()
-            var done = 0L
-            FileOutputStream(partial, false).use { out ->
+            val responseEtag = response.header("ETag").orEmpty()
+            val responseLastModified = response.header("Last-Modified").orEmpty()
+            metadata.delete()
+            if (responseEtag.isNotBlank() || responseLastModified.isNotBlank()) {
+                Properties().apply {
+                    setProperty("url", url)
+                    if (responseEtag.isNotBlank()) setProperty("etag", responseEtag)
+                    if (responseLastModified.isNotBlank()) setProperty("lastModified", responseLastModified)
+                }.let { saved ->
+                    val temp = File(metadata.parentFile, metadata.name + ".tmp")
+                    temp.outputStream().use { saved.store(it, "OpenCode download resume metadata") }
+                    if (metadata.exists()) metadata.delete()
+                    check(temp.renameTo(metadata)) { "Could not save download resume metadata." }
+                }
+            }
+
+            val total = if (append) {
+                Regex("^bytes \\d+-\\d+/(\\d+)$")
+                    .find(response.header("Content-Range").orEmpty())
+                    ?.groupValues?.get(1)?.toLongOrNull() ?: -1L
+            } else {
+                body.contentLength()
+            }
+            var done = if (append) offset else 0L
+            FileOutputStream(partial, append).use { out ->
                 body.byteStream().use { input ->
-                    val buffer = ByteArray(64 * 1024)
+                    val buffer = ByteArray(128 * 1024)
                     while (true) {
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        out.write(buffer, 0, n)
-                        done += n
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        out.write(buffer, 0, count)
+                        done += count
                         progress(done, total)
                     }
+                    out.fd.sync()
                 }
             }
         }
+
+        if (dest.exists()) check(dest.delete()) { "Could not replace previous download archive." }
         check(partial.renameTo(dest)) { "Could not finalize downloaded file." }
+        metadata.delete()
     }
 
     private fun sha256(file: File): String {
