@@ -90,7 +90,13 @@ class MainActivity : ComponentActivity() {
             val safeInsets = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            view.setPadding(safeInsets.left, safeInsets.top, safeInsets.right, safeInsets.bottom)
+            val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(
+                maxOf(safeInsets.left, imeInsets.left),
+                safeInsets.top,
+                maxOf(safeInsets.right, imeInsets.right),
+                maxOf(safeInsets.bottom, imeInsets.bottom)
+            )
             insets
         }
         ViewCompat.requestApplyInsets(root)
