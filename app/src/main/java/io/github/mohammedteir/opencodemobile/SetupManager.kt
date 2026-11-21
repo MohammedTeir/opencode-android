@@ -45,7 +45,11 @@ class SetupManager(private val context: Context) {
         return compareVersions(update.version, current) > 0
     }
 
-    fun deletePreviousBinary(): Boolean = File(rootfs, "usr/local/bin/opencode.previous").delete()
+    fun deletePreviousBinary(): Boolean {
+        val deleted = File(rootfs, "usr/local/bin/opencode.previous").delete()
+        File(context.filesDir, "opencode.previous.version").delete()
+        return deleted
+    }
 
     suspend fun checkForUpdate(): OpenCodeUpdate = withContext(Dispatchers.IO) {
         val request = Request.Builder()
@@ -97,31 +101,172 @@ class SetupManager(private val context: Context) {
     }
 
     suspend fun installOpenCodeUpdate(update: OpenCodeUpdate, log: (String) -> Unit, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
-        check(hasRootfs() && hasOpenCodeBinary()) { "Install OpenCode before updating it." }
-        val installed = installedVersion()?.let(::parseVersion) ?: error("Installed OpenCode version is unknown.")
-        check(compareVersions(update.version, installed) > 0) { "OpenCode is already up to date." }
-        val archive = File(downloadDirectory(), "opencode-${update.displayVersion}-linux-arm64.tar.gz")
-        downloadVerified(update.url, archive, update.sha256, progress) {
-            log(it)
+        installOpenCodeRelease(update, requireNewer = true, log = log, progress = progress)
+    }
+
+    /**
+     * Repairs only the OpenCode executable using the latest stable ARM64 release
+     * in the app's supported major-version channel. Debian and user configuration
+     * are not reinstalled or rewritten.
+     */
+    suspend fun repairOpenCode(log: (String) -> Unit, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
+        check(hasRootfs()) { "Debian rootfs is not installed; OpenCode repair cannot run." }
+        check(!OpenCodeService.isRunning) { "Stop the OpenCode server before repairing OpenCode." }
+        val latest = checkForUpdate()
+        val installed = installedVersion()?.let(::parseVersion)
+        check(installed == null || compareVersions(latest.version, installed) >= 0) {
+            "The latest supported release is older than the installed version. Repair was stopped to prevent a downgrade."
         }
+        installOpenCodeRelease(latest, requireNewer = false, log = log, progress = progress)
+    }
+
+    fun hasPreviousOpenCode(): Boolean {
+        val backup = File(rootfs, "usr/local/bin/opencode.previous")
+        val version = File(context.filesDir, "opencode.previous.version")
+        return runCatching {
+            backup.isFile && backup.canExecute() && version.isFile &&
+                parseVersion(version.readText().trim()) != null
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Restores the last known-good binary while retaining the currently installed
+     * executable under a timestamped failed-binary name for manual recovery.
+     */
+    suspend fun restorePreviousOpenCode(log: (String) -> Unit) = withContext(Dispatchers.IO) {
+        check(!OpenCodeService.isRunning) { "Stop the OpenCode server before restoring OpenCode." }
+        val backup = File(rootfs, "usr/local/bin/opencode.previous")
+        val versionFile = File(context.filesDir, "opencode.previous.version")
+        val previousVersion = versionFile.takeIf { it.isFile }?.readText()?.trim()
+            ?: error("No previous OpenCode version metadata is available.")
+        check(backup.isFile && backup.canExecute() && parseVersion(previousVersion) != null) {
+            "The previous OpenCode binary or its version metadata is missing or invalid."
+        }
+        val target = File(rootfs, "usr/local/bin/opencode")
+        val failed = File(rootfs, "usr/local/bin/opencode.failed-${System.currentTimeMillis()}")
+        val currentVersionText = installedVersion()
+        var currentMoved = false
+        try {
+            if (target.exists()) {
+                Files.move(target.toPath(), failed.toPath())
+                currentMoved = true
+            }
+            Files.move(backup.toPath(), target.toPath())
+            writeVersionAtomically(File(context.filesDir, "setup_ready"), previousVersion)
+            if (!versionFile.delete() && versionFile.exists()) {
+                log("Previous-version metadata could not be cleared; rollback is disabled until it is cleaned up.")
+            }
+            log("Restored OpenCode V$previousVersion. The replaced executable was retained as ${failed.name}.")
+        } catch (t: Throwable) {
+            if (target.exists() && !backup.exists()) {
+                runCatching { Files.move(target.toPath(), backup.toPath()) }
+            }
+            if (currentMoved && failed.exists() && !target.exists()) {
+                runCatching { Files.move(failed.toPath(), target.toPath()) }
+            }
+            if (currentVersionText != null) {
+                runCatching { writeVersionAtomically(File(context.filesDir, "setup_ready"), currentVersionText) }
+            }
+            throw t
+        }
+    }
+    private suspend fun installOpenCodeRelease(
+        update: OpenCodeUpdate,
+        requireNewer: Boolean,
+        log: (String) -> Unit,
+        progress: (Long, Long) -> Unit
+    ) {
+        check(hasRootfs()) { "Install the Debian rootfs before installing OpenCode." }
+        check(!OpenCodeService.isRunning) { "Stop the OpenCode server before replacing OpenCode." }
+        val currentVersionText = installedVersion()
+        val currentVersion = currentVersionText?.let(::parseVersion)
+        if (requireNewer) {
+            check(currentVersion != null && compareVersions(update.version, currentVersion) > 0) {
+                "OpenCode update is not newer than the installed version."
+            }
+        } else {
+            check(currentVersion == null || compareVersions(update.version, currentVersion) >= 0) {
+                "Refusing to downgrade OpenCode."
+            }
+        }
+
+        val archive = File(downloadDirectory(), "opencode-${update.displayVersion}-linux-arm64.tar.gz")
+        downloadVerified(update.url, archive, update.sha256, progress) { log(it) }
         val target = File(rootfs, "usr/local/bin/opencode")
         val staging = File(rootfs, ".opencode-update-${System.currentTimeMillis()}")
         val backup = File(rootfs, "usr/local/bin/opencode.previous")
+        val previousVersionFile = File(context.filesDir, "opencode.previous.version")
+        var previousMoved = false
+        var repairTargetMovedToFailed: File? = null
+        var newBinaryInstalled = false
         try {
             installOpenCodeTar(archive, staging)
-            check(staging.canExecute()) { "Downloaded update did not contain an executable OpenCode binary." }
-            Files.move(target.toPath(), backup.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            try {
-                Files.move(staging.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            } catch (t: Throwable) {
-                Files.move(backup.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                throw t
+            check(staging.isFile && staging.canExecute()) {
+                "Downloaded release did not produce a usable executable OpenCode binary."
             }
-            File(context.filesDir, "setup_ready").writeText("${update.version}\n")
+
+            if (target.isFile) {
+                if (requireNewer) {
+                    val previousVersion = currentVersionText?.takeIf { parseVersion(it) != null }
+                    Files.move(target.toPath(), backup.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    previousMoved = true
+                    if (previousVersion != null) writeVersionAtomically(previousVersionFile, previousVersion)
+                    else {
+                        check(previousVersionFile.delete() || !previousVersionFile.exists()) {
+                            "Could not clear stale rollback metadata; the existing executable was restored."
+                        }
+                        log("Previous binary retained, but its version is unknown; one-tap rollback is unavailable for it.")
+                    }
+                } else {
+                    repairTargetMovedToFailed = File(rootfs, "usr/local/bin/opencode.failed-${System.currentTimeMillis()}")
+                    Files.move(target.toPath(), repairTargetMovedToFailed!!.toPath())
+                    log("The replaced executable was retained as ${repairTargetMovedToFailed!!.name}; the last known-good rollback copy was preserved.")
+                }
+            }
+            Files.move(staging.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            newBinaryInstalled = true
+            writeVersionAtomically(File(context.filesDir, "setup_ready"), update.displayVersion)
             pruneOpenCodeArchiveCache(archive)
-            log("OpenCode V${update.displayVersion} installed. Previous binary kept at usr/local/bin/opencode.previous.")
+            log("OpenCode V${update.displayVersion} installed and verified. Previous binary retained when available.")
+        } catch (t: Throwable) {
+            if (newBinaryInstalled && target.exists()) {
+                val failed = File(rootfs, "usr/local/bin/opencode.failed-${System.currentTimeMillis()}")
+                runCatching { Files.move(target.toPath(), failed.toPath()) }
+            }
+            if (previousMoved && backup.exists()) {
+                runCatching { Files.move(backup.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING) }
+            }
+            repairTargetMovedToFailed?.takeIf { it.exists() }?.let { failed ->
+                if (!target.exists()) runCatching { Files.move(failed.toPath(), target.toPath()) }
+            }
+            if (currentVersionText != null) {
+                runCatching { writeVersionAtomically(File(context.filesDir, "setup_ready"), currentVersionText) }
+            }
+            throw t
         } finally {
             if (staging.exists()) staging.delete()
+        }
+    }
+
+    private fun writeVersionAtomically(destination: File, version: String) {
+        val temp = File(destination.parentFile ?: context.filesDir, "${destination.name}.tmp-${System.currentTimeMillis()}")
+        try {
+            FileOutputStream(temp).use { output ->
+                output.write((version + "\n").toByteArray(Charsets.UTF_8))
+                output.fd.sync()
+            }
+            try {
+                Files.move(
+                    temp.toPath(),
+                    destination.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                    java.nio.file.StandardCopyOption.ATOMIC_MOVE
+                )
+            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+                Files.move(temp.toPath(), destination.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            }
+        } finally {
+            if (temp.exists()) temp.delete()
         }
     }
 
