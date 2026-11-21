@@ -700,23 +700,36 @@ class MainActivity : ComponentActivity() {
         val root = runCatching { storageRoot.canonicalFile }.getOrNull() ?: return
         val folder = runCatching { current.canonicalFile }.getOrNull() ?: return
         if (folder.path != root.path && !folder.path.startsWith(root.path + File.separator)) return
-        val children = runCatching { folder.listFiles() }.getOrNull()
+        val listing = runCatching { folder.listFiles() }
+        val children = listing.getOrNull()
             ?.filter { child ->
-                child.isDirectory && child.canRead() && child.canWrite() &&
+                // Do not use canRead() as a discovery filter: Android's emulated
+                // storage layer can report false negatives for directory metadata.
+                // Actual read/write access is validated when a folder is selected.
+                child.isDirectory &&
                     !(folder.name == "Android" && child.name in setOf("data", "obb"))
             }
             ?.sortedBy { it.name.lowercase() }
             .orEmpty()
+        val pickerMessage = buildString {
+            append(folder.path)
+            when {
+                listing.isFailure -> append("\n\nCould not list this folder: ${listing.exceptionOrNull()?.message ?: "unknown error"}")
+                listing.getOrNull() == null -> append("\n\nAndroid returned no folder listing. Check All files access, then reload this picker.")
+                children.isEmpty() -> append("\n\nNo subfolders were found here. You can select this folder, or go back to its parent.")
+                else -> append("\n\nSelect a folder below, or use the current folder.")
+            }
+        }
         val dialog = AlertDialog.Builder(this)
-            .setTitle("Choose workspace folder")
-            .setMessage(folder.path)
-            .setItems(children.map { it.name + "/" }.toTypedArray()) { _, which ->
+            .setTitle("Choose project folder")
+            .setMessage(pickerMessage)
+            .setItems(children.map { "📁  ${it.name}" }.toTypedArray()) { _, which ->
                 if (which in children.indices) showWorkspaceDirectoryPicker(children[which], root)
             }
             .setPositiveButton("Use this folder") { _, _ ->
                 val guestPath = StorageAccessManager.guestPathForDirectory(folder)
                 if (guestPath == null) {
-                    Toast.makeText(this, "That folder is no longer accessible", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Choose a readable and writable folder inside shared storage", Toast.LENGTH_LONG).show()
                 } else {
                     getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE).edit()
                         .putString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, guestPath)
