@@ -46,3 +46,13 @@ The V2.3.2 archive checksum matched GitHub’s published digest, and the binary 
 On a physical ARM64 device, verify M1–M4 in order, including rootfs symlinks, DNS/HTTPS inside PRoot, package installation, the OpenCode version, OpenCode permission prompts, WebView auth and streaming, server behavior with the screen off, and restart without duplicate listeners. For shared storage, test granting and revoking All files access, read/write operations under `/sdcard` and `/storage/emulated/0`, and confirm every PRoot entry point uses the same mount. Verify `Android/data` and `Android/obb` remain inaccessible. Repeat on supported Android versions and vendors. Android’s phantom-process killer and vendor battery policies may still terminate PRoot children. Keep the foreground-service notification active.
 
 Before public distribution, M1–M4 must pass on real devices, the release signing key must have a secure backup, application ID/versioning must be finalized, and third-party license/source obligations and merged notices must be addressed.
+
+
+## Workspace locations
+
+OpenCode Mobile supports two selectable workspace roots:
+
+- **Debian filesystem:** projects live inside the app-private Debian rootfs. The default development directory is `/root/projects`, recommended for Git repositories, package managers, builds, and Linux tooling.
+- **Android shared storage:** when Android's All files access permission is granted, shared storage is mounted into PRoot at `/sdcard` and `/storage/emulated/0`. Select folders such as `/sdcard/Projects`, `/sdcard/Download`, or `/sdcard/Documents` to work on them directly.
+
+The workspace picker first asks which filesystem to browse, then lets the user navigate and select a directory. OpenCode's normal permission system still governs file and shell operations; a PRoot bind mount does not grant blanket OpenCode authorization. Changing the workspace requires stopping and restarting the server.
