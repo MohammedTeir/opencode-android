@@ -49,7 +49,7 @@ object StorageAccessManager {
         }
         val parts = relative.split('/').filter { it.isNotEmpty() }
         if (parts.any { it == "." || it == ".." || '\u0000' in it }) return false
-        val base = File(rootfs, "sdcard").canonicalFile
+        val base = sharedStorageDirectory()?.canonicalFile ?: return false
         val target = runCatching { File(base, parts.joinToString(File.separator)).canonicalFile }.getOrNull() ?: return false
         return target.isDirectory && (target.path == base.path || target.path.startsWith(base.path + File.separator))
     }
