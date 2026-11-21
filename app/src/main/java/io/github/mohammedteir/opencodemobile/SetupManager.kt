@@ -201,6 +201,8 @@ class SetupManager(private val context: Context) {
             }
         }
 
+        cleanupAbandonedRootfsStagingDirectories(log)
+
         val stage = File(context.filesDir, "rootfs-staging-${System.currentTimeMillis()}")
         try {
             log("Extracting rootfs (this may take several minutes)…")
@@ -742,6 +744,31 @@ class SetupManager(private val context: Context) {
         if (!config.exists()) config.writeText(DEFAULT_CONFIG)
         val agents = File(dir, "AGENTS.md")
         if (!agents.exists()) agents.writeText(DEFAULT_AGENTS)
+    }
+
+    /**
+     * A force-stop or process kill can bypass the extraction catch block and leave
+     * an abandoned staging directory behind. Remove only our exact staging-name
+     * pattern, and never follow a symlink while identifying or deleting candidates.
+     */
+    private fun cleanupAbandonedRootfsStagingDirectories(log: (String) -> Unit) {
+        val filesRoot = context.filesDir.toPath().toAbsolutePath().normalize()
+        val candidates = context.filesDir.listFiles().orEmpty().filter { candidate ->
+            candidate.name.matches(Regex("rootfs-staging-\\d+")) &&
+                Files.isDirectory(candidate.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                !Files.isSymbolicLink(candidate.toPath())
+        }
+        for (candidate in candidates) {
+            val candidatePath = candidate.toPath().toAbsolutePath().normalize()
+            if (candidatePath.parent != filesRoot) continue
+            runCatching {
+                removeTreeNoFollow(candidatePath)
+                log("Removed abandoned Debian extraction staging directory: ${candidate.name}")
+            }.onFailure {
+                log("Could not remove abandoned Debian staging directory ${candidate.name}: ${it.message}")
+                throw it
+            }
+        }
     }
 
     private fun removeTreeNoFollow(root: Path) {

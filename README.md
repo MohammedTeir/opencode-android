@@ -37,7 +37,7 @@ After the pinned initial install, the setup screen can check the official OpenCo
 - **Debian Bookworm ARM64 rootfs:** `https://images.linuxcontainers.org/images/debian/bookworm/arm64/default/20261117_05:24/rootfs.tar.xz`; SHA-256 `125416b51b1272db7abd932bc7cc5f286fd29a190cb5a1b18460500f5448d5fc`.
 - **OpenCode V2.3.2 ARM64 release:** `https://github.com/anomalyco/opencode/releases/download/v2.3.2/opencode-linux-arm64.tar.gz`; SHA-256 `9d10185acdb72336e086e699ca363a6065f410fd3c1caed0dc8046e95ac06ccb`.
 
-The Debian rootfs and OpenCode archives are downloaded at first run rather than embedded in the APK and are verified against pinned digests. Rootfs extraction uses a fresh staging directory, rejects traversal and symlink-parent traversal, and skips device nodes and FIFOs.
+The Debian rootfs and OpenCode archives are downloaded at first run rather than embedded in the APK and are verified against pinned digests. Rootfs extraction uses a fresh staging directory, rejects traversal and symlink-parent traversal, and skips device nodes and FIFOs. If Android force-stops the app during extraction, the next setup attempt removes only abandoned directories matching the app's private `rootfs-staging-<timestamp>` pattern before retrying; a verified cached archive is retained for reuse.
 
 ## Validation still required
 
