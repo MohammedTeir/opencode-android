@@ -700,23 +700,34 @@ class MainActivity : ComponentActivity() {
         val root = runCatching { storageRoot.canonicalFile }.getOrNull() ?: return
         val folder = runCatching { current.canonicalFile }.getOrNull() ?: return
         if (folder.path != root.path && !folder.path.startsWith(root.path + File.separator)) return
-        val children = runCatching { folder.listFiles() }.getOrNull()
+        val listing = runCatching { folder.listFiles() }
+        val children = listing.getOrNull()
             ?.filter { child ->
-                child.isDirectory && child.canRead() && child.canWrite() &&
+                // Navigation only requires read access. Writability is checked when
+                // the user selects a workspace, not while browsing its parent.
+                child.isDirectory && child.canRead() &&
                     !(folder.name == "Android" && child.name in setOf("data", "obb"))
             }
             ?.sortedBy { it.name.lowercase() }
             .orEmpty()
+        val pickerMessage = buildString {
+            append(folder.path)
+            when {
+                listing.isFailure -> append("\\n\\nUnable to read this directory: ${listing.exceptionOrNull()?.message ?: "permission denied"}")
+                listing.getOrNull() == null -> append("\\n\\nAndroid did not return a folder listing. Check shared-storage permission and try again.")
+                children.isEmpty() -> append("\\n\\nNo accessible subfolders here. You can use this folder as your workspace or go back.")
+            }
+        }
         val dialog = AlertDialog.Builder(this)
             .setTitle("Choose workspace folder")
-            .setMessage(folder.path)
+            .setMessage(pickerMessage)
             .setItems(children.map { it.name + "/" }.toTypedArray()) { _, which ->
                 if (which in children.indices) showWorkspaceDirectoryPicker(children[which], root)
             }
             .setPositiveButton("Use this folder") { _, _ ->
                 val guestPath = StorageAccessManager.guestPathForDirectory(folder)
                 if (guestPath == null) {
-                    Toast.makeText(this, "That folder is no longer accessible", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Choose a readable and writable folder inside shared storage", Toast.LENGTH_LONG).show()
                 } else {
                     getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE).edit()
                         .putString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, guestPath)
