@@ -42,9 +42,12 @@ object RootAccessManager {
     private const val PREF_ROOT_HARDLINKS_ENABLED = "root_hardlinks_enabled"
     private const val PREF_ROOT_HARDLINKS_VERIFIED = "root_hardlinks_verified"
 
+    fun isRootHardLinksVerified(context: android.content.Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, 0).getBoolean(PREF_ROOT_HARDLINKS_VERIFIED, false)
+
     fun isRootHardLinksEnabled(context: android.content.Context): Boolean =
         context.getSharedPreferences(PREFS_NAME, 0).getBoolean(PREF_ROOT_HARDLINKS_ENABLED, false) &&
-            context.getSharedPreferences(PREFS_NAME, 0).getBoolean(PREF_ROOT_HARDLINKS_VERIFIED, false)
+            isRootHardLinksVerified(context)
 
     fun setRootHardLinksEnabled(context: android.content.Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS_NAME, 0).edit()
@@ -81,11 +84,16 @@ object RootAccessManager {
         val targetArg = shellQuote(targetFile.absolutePath)
         val linkArg = shellQuote(linkFile.absolutePath)
         val script = """
-            set -eu
-            ln $targetArg $linkArg
-            target_inode=$(stat -c %i $targetArg)
-            link_inode=$(stat -c %i $linkArg)
-            test "$target_inode" = "$link_inode"
+            set -u
+            if ! ln $targetArg $linkArg; then
+                exit 1
+            fi
+            target_inode=$(stat -c %i $targetArg 2>/dev/null) || { rm -f $linkArg; exit 2; }
+            link_inode=$(stat -c %i $linkArg 2>/dev/null) || { rm -f $linkArg; exit 3; }
+            if [ "$target_inode" != "$link_inode" ]; then
+                rm -f $linkArg
+                exit 4
+            fi
             echo ROOT_HARDLINK_CREATED
         """.trimIndent()
         return executeFixed("Create Debian hard link with root", script, timeoutSeconds) { output, exitCode ->
