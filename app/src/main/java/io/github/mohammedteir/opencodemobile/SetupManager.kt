@@ -128,15 +128,34 @@ class SetupManager(private val context: Context) {
     }
 
     suspend fun installRootfs(log: (String) -> Unit, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
-        require(!hasRootfs()) { "A Debian rootfs already exists." }
-        val archive = File(context.cacheDir, "debian-bookworm-arm64-rootfs.tar.xz")
-        log("Downloading pinned Debian Bookworm ARM64 rootfs…")
-        download(ROOTFS_URL, archive, progress)
-        log("Checking SHA-256…")
-        if (sha256(archive) != ROOTFS_SHA256) {
-            archive.delete()
-            error("Rootfs checksum mismatch; download removed.")
+        check(!rootfs.exists()) {
+            if (hasRootfs()) {
+                "A Debian rootfs already exists."
+            } else {
+                "A rootfs directory already exists but is incomplete. It was left untouched; inspect it before removing it."
+            }
         }
+
+        val archive = File(context.cacheDir, "debian-bookworm-arm64-rootfs.tar.xz")
+        val cachedArchiveIsValid = archive.isFile &&
+            runCatching { sha256(archive) == ROOTFS_SHA256 }.getOrDefault(false)
+
+        if (cachedArchiveIsValid) {
+            log("Reusing previously downloaded Debian archive; SHA-256 verified.")
+        } else {
+            if (archive.exists()) {
+                archive.delete()
+                log("Discarded an incomplete or invalid cached Debian archive.")
+            }
+            log("Downloading pinned Debian Bookworm ARM64 rootfs…")
+            download(ROOTFS_URL, archive, progress)
+            log("Checking SHA-256…")
+            if (sha256(archive) != ROOTFS_SHA256) {
+                archive.delete()
+                error("Rootfs checksum mismatch; download removed.")
+            }
+        }
+
         val stage = File(context.filesDir, "rootfs-staging-${System.currentTimeMillis()}")
         try {
             log("Extracting rootfs (this may take several minutes)…")
@@ -145,12 +164,14 @@ class SetupManager(private val context: Context) {
             check(File(stage, "bin/bash").exists()) { "Archive did not contain a Debian root filesystem." }
             check(stage.renameTo(rootfs)) { "Could not activate the extracted rootfs." }
             log("Debian rootfs installed.")
+            // Keep the verified archive until activation succeeds so a failed extraction
+            // can be retried without downloading the large rootfs again.
+            archive.delete()
         } catch (t: Throwable) {
             // The unique staging directory is never followed through symlinks during cleanup.
             removeTreeNoFollow(stage.toPath())
+            // Deliberately retain the verified archive for the next installation attempt.
             throw t
-        } finally {
-            archive.delete()
         }
     }
 
