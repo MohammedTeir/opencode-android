@@ -53,6 +53,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var installButton: Button
     private lateinit var updateButton: Button
     private lateinit var serverButton: Button
+    private lateinit var activityPanel: ScrollView
+    private lateinit var activityToggle: TextView
     private lateinit var content: LinearLayout
     private var webView: WebView? = null
     private var fileChooser: ValueCallback<Array<Uri>>? = null
@@ -115,9 +117,10 @@ class MainActivity : ComponentActivity() {
         }
         val page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(22), dp(20), dp(28))
+            setPadding(dp(18), dp(14), dp(18), dp(18))
         }
 
+        // Compact app bar
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
@@ -127,132 +130,152 @@ class MainActivity : ComponentActivity() {
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "OpenCode"
         }
-        header.addView(wordmark, LinearLayout.LayoutParams(dp(142), dp(28)))
-        val headerSpacer = View(this)
-        header.addView(headerSpacer, LinearLayout.LayoutParams(0, 1, 1f))
+        header.addView(wordmark, LinearLayout.LayoutParams(dp(126), dp(25)))
+        header.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         val platformLabel = TextView(this).apply {
-            text = "ANDROID  •  ARM64"
-            textSize = 10f
-            letterSpacing = 0.08f
+            text = "ANDROID · ARM64"
+            textSize = 9f
+            letterSpacing = 0.06f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setTextColor(Color.parseColor("#A9A2A2"))
-            setPadding(dp(10), dp(7), dp(10), dp(7))
+            setTextColor(Color.parseColor("#B7B1B1"))
+            setPadding(dp(9), dp(6), dp(9), dp(6))
             background = rounded("#211E1E", 30)
         }
         header.addView(platformLabel)
         page.addView(header)
 
-        val hero = card("#1B1919", 22).apply {
-            setPadding(dp(20), dp(22), dp(20), dp(20))
+        // Status card: keep the most important state visible without a large hero section.
+        val hero = card("#1B1919", 18).apply {
+            setPadding(dp(16), dp(14), dp(16), dp(14))
         }
-        hero.addView(text("LOCAL RUNTIME  /  PRIVATE WORKSPACE", 10f, "#B7B1B1", true).apply {
+        hero.addView(text("YOUR LOCAL WORKSPACE", 9f, "#A9A2A2", true).apply {
             letterSpacing = 0.10f
         })
-        hero.addView(text("OpenCode,\nready when you are.", 29f, "#F1ECEC", true).apply {
-            setLineSpacing(dp(1).toFloat(), 1f)
-            setPadding(0, dp(13), 0, dp(9))
-        })
-        hero.addView(text("Set up a lightweight Debian environment, install the OpenCode runtime, then connect to your local workspace.", 14f, "#A9A2A2", false).apply {
-            setLineSpacing(dp(4).toFloat(), 1f)
+        hero.addView(text("OpenCode on this device", 20f, "#F1ECEC", true).apply {
+            setPadding(0, dp(4), 0, dp(9))
         })
         status = text("Preparing your environment…", 12f, "#D8D2D2", true).apply {
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = rounded("#292525", 12)
+            setPadding(dp(10), dp(9), dp(10), dp(9))
+            background = rounded("#292525", 10)
         }
-        hero.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(18)
-        })
+        hero.addView(status)
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 1000
             visibility = View.GONE
-            progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#B7B1B1"))
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#D8D2D2"))
             progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#454040"))
         }
-        hero.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)).apply {
-            topMargin = dp(14)
+        hero.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)).apply {
+            topMargin = dp(10)
         })
         page.addView(hero, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(26)
-        })
-
-        page.addView(sectionHeading("GET STARTED", "A one-time setup, in four steps."), LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(26) })
-
-        rootfsButton = button("Install Debian environment") { runInstallRootfs() }
-        smokeButton = button("Run environment check", false) { runSmokeTest() }
-        installButton = button("Install OpenCode + packages") { runInstallOpenCode() }
-        serverButton = button("Start local workspace") { startServerAndOpen() }
-
-        addStepCard(page, "01", "Debian environment", "Download and prepare the ARM64 Linux root filesystem.", rootfsButton)
-        addStepCard(page, "02", "Runtime check", "Verify that PRoot can execute inside the new environment.", smokeButton)
-        addStepCard(page, "03", "OpenCode runtime", "Install the pinned OpenCode version and required packages.", installButton)
-        addStepCard(page, "04", "Launch workspace", "Start the authenticated local server and open its interface.", serverButton)
-
-        val toolsCard = card("#1B1919", 18)
-        toolsCard.addView(text("MAINTENANCE", 10f, "#B7B1B1", true).apply { letterSpacing = 0.10f })
-        toolsCard.addView(text("Keep your runtime current", 17f, "#F1ECEC", true).apply {
-            setPadding(0, dp(7), 0, dp(4))
-        })
-        toolsCard.addView(text("Check the stable release channel configured for this app.", 13f, "#A9A2A2", false))
-        updateButton = button("Check for updates", false) { runCheckForUpdates() }
-        toolsCard.addView(updateButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
-            topMargin = dp(14)
-        })
-        val batteryButton = button("Battery optimization settings", false) { requestBatteryExemption() }
-        toolsCard.addView(batteryButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply {
-            topMargin = dp(8)
-        })
-        page.addView(toolsCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(14)
         })
 
-        val privacyNote = text("Your workspace is served locally on this device at 127.0.0.1. Android storage is not automatically mounted into the Linux environment. Keep the foreground service notification visible while the server runs.", 12f, "#827B7B", false)
-        privacyNote.setPadding(dp(2), dp(18), dp(2), dp(10))
-        page.addView(privacyNote)
+        val setupHeading = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            addView(text("SETUP", 10f, "#B7B1B1", true).apply { letterSpacing = 0.10f })
+            addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 1, 1f))
+            addView(text("Complete in order", 11f, "#827B7B", false))
+        }
+        page.addView(setupHeading, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(18)
+            bottomMargin = dp(8)
+        })
 
-        page.addView(text("ACTIVITY", 10f, "#B7B1B1", true).apply {
+        val stepsCard = card("#1B1919", 16, "#302B2B").apply {
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+        }
+        rootfsButton = compactButton("Install") { runInstallRootfs() }
+        smokeButton = compactButton("Check", false) { runSmokeTest() }
+        installButton = compactButton("Install") { runInstallOpenCode() }
+        serverButton = compactButton("Launch") { startServerAndOpen() }
+
+        addStepRow(stepsCard, "1", "Debian environment", rootfsButton)
+        addStepDivider(stepsCard)
+        addStepRow(stepsCard, "2", "Runtime check", smokeButton)
+        addStepDivider(stepsCard)
+        addStepRow(stepsCard, "3", "OpenCode runtime", installButton)
+        addStepDivider(stepsCard)
+        addStepRow(stepsCard, "4", "Start workspace", serverButton)
+        page.addView(stepsCard)
+
+        val maintenance = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(12), 0, dp(4))
+        }
+        updateButton = compactButton("Check updates", false) { runCheckForUpdates() }
+        val batteryButton = compactButton("Battery settings", false) { requestBatteryExemption() }
+        maintenance.addView(updateButton, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+            marginEnd = dp(6)
+        })
+        maintenance.addView(batteryButton, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+            marginStart = dp(6)
+        })
+        page.addView(maintenance)
+
+        page.addView(text("Runs locally at 127.0.0.1 · Android storage is not mounted into Debian.", 10f, "#777070", false).apply {
+            setPadding(dp(2), dp(5), dp(2), dp(10))
+        })
+
+        // Logs are available on demand and automatically open when an operation emits output.
+        val activityHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(dp(2), dp(8), dp(2), dp(8))
+            isClickable = true
+            isFocusable = true
+        }
+        activityHeader.addView(text("ACTIVITY LOG", 10f, "#B7B1B1", true).apply {
             letterSpacing = 0.10f
-            setPadding(dp(2), dp(12), 0, dp(9))
         })
+        activityHeader.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        activityToggle = text("Show  ↓", 11f, "#A9A2A2", true)
+        activityHeader.addView(activityToggle)
+        activityPanel = ScrollView(this).apply {
+            isFillViewport = false
+            visibility = View.GONE
+            background = rounded("#171515", 12, "#302B2B")
+        }
         logs = TextView(this).apply {
             textSize = 11f
             typeface = Typeface.create("monospace", Typeface.NORMAL)
             setTextColor(Color.parseColor("#C7C0C0"))
-            setPadding(dp(14), dp(14), dp(14), dp(14))
+            setPadding(dp(12), dp(12), dp(12), dp(12))
             setTextIsSelectable(true)
-            text = "Setup output will appear here.\n"
-            background = rounded("#171515", 14, "#302B2B")
+            text = "No activity yet."
         }
-        val logScroll = ScrollView(this).apply {
-            isFillViewport = false
-            addView(logs)
-            background = rounded("#171515", 14, "#302B2B")
+        activityPanel.addView(logs)
+        activityHeader.setOnClickListener {
+            val expanded = activityPanel.visibility != View.VISIBLE
+            activityPanel.visibility = if (expanded) View.VISIBLE else View.GONE
+            activityToggle.text = if (expanded) "Hide  ↑" else "Show  ↓"
         }
-        page.addView(logScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(156)))
+        page.addView(activityHeader)
+        page.addView(activityPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132)))
 
         pageScroll.addView(page)
         content.addView(pageScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(content)
         applySystemBarInsets(content)
-        appendLog("Ready. Install the Debian environment, then run the runtime check.\n")
     }
 
-    private fun sectionHeading(kicker: String, subtitle: String): LinearLayout {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            addView(text(kicker, 10f, "#B7B1B1", true).apply { letterSpacing = 0.10f })
-            addView(text(subtitle, 14f, "#8F8888", false).apply { setPadding(0, dp(5), 0, 0) })
+    private fun compactButton(label: String, primary: Boolean = true, action: () -> Unit): Button {
+        return button(label, primary, action).apply {
+            textSize = 12f
+            minHeight = dp(40)
+            minimumHeight = dp(40)
+            setPadding(dp(9), 0, dp(9), 0)
         }
     }
 
-    private fun addStepCard(parent: LinearLayout, number: String, title: String, description: String, action: Button) {
-        val container = card("#1B1919", 18).apply {
-            setPadding(dp(16), dp(16), dp(16), dp(16))
-        }
-        val header = LinearLayout(this).apply {
+    private fun addStepRow(parent: LinearLayout, number: String, title: String, action: Button) {
+        val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(7), 0, dp(7))
         }
         val index = TextView(this).apply {
             text = number
@@ -260,26 +283,21 @@ class MainActivity : ComponentActivity() {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             gravity = android.view.Gravity.CENTER
             setTextColor(Color.parseColor("#E7E1E1"))
-            background = rounded("#393333", 12)
+            background = rounded("#393333", 10)
         }
-        header.addView(index, LinearLayout.LayoutParams(dp(38), dp(38)))
-        val copy = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), 0, 0, 0)
-            addView(text(title, 15f, "#F1ECEC", true))
-            addView(text(description, 12f, "#968F8F", false).apply {
-                setPadding(0, dp(4), 0, 0)
-                setLineSpacing(dp(2).toFloat(), 1f)
-            })
-        }
-        header.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        container.addView(header)
-        container.addView(action, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
-            topMargin = dp(15)
+        row.addView(index, LinearLayout.LayoutParams(dp(30), dp(30)))
+        row.addView(text(title, 13f, "#F1ECEC", true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            marginStart = dp(11)
+            marginEnd = dp(8)
         })
-        parent.addView(container, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(10)
-        })
+        row.addView(action, LinearLayout.LayoutParams(dp(94), dp(40)))
+        parent.addView(row)
+    }
+
+    private fun addStepDivider(parent: LinearLayout) {
+        parent.addView(View(this).apply {
+            setBackgroundColor(Color.parseColor("#302B2B"))
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
     }
 
     private fun text(value: String, size: Float, color: String, medium: Boolean): TextView {
@@ -603,8 +621,9 @@ class MainActivity : ComponentActivity() {
 
     private fun appendLog(message: String) = runOnUiThread {
         logs.append(message)
-        val parent = logs.parent as? ScrollView
-        parent?.post { parent.fullScroll(View.FOCUS_DOWN) }
+        activityPanel.visibility = View.VISIBLE
+        activityToggle.text = "Hide  ↑"
+        activityPanel.post { activityPanel.fullScroll(View.FOCUS_DOWN) }
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
