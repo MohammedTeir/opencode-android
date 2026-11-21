@@ -139,6 +139,34 @@ class SetupManager(private val context: Context) {
             "The previous OpenCode binary or its version metadata is missing or invalid."
         }
         val target = File(rootfs, "usr/local/bin/opencode")
+        val failed = File(rootfs, "usr/local/bin/opencode.failed-\${System.currentTimeMillis()}")
+        val currentVersionText = installedVersion()
+        var currentMoved = false
+        try {
+            if (target.exists()) {
+                Files.move(target.toPath(), failed.toPath())
+                currentMoved = true
+            }
+            Files.move(backup.toPath(), target.toPath())
+            writeVersionAtomically(File(context.filesDir, "setup_ready"), previousVersion)
+            if (!versionFile.delete() && versionFile.exists()) {
+                log("Previous-version metadata could not be cleared; rollback is disabled until it is cleaned up.")
+            }
+            log("Restored OpenCode V$previousVersion. The replaced executable was retained as \${failed.name}.")
+        } catch (t: Throwable) {
+            if (target.exists() && !backup.exists()) {
+                runCatching { Files.move(target.toPath(), backup.toPath()) }
+            }
+            if (currentMoved && failed.exists() && !target.exists()) {
+                runCatching { Files.move(failed.toPath(), target.toPath()) }
+            }
+            if (currentVersionText != null) {
+                runCatching { writeVersionAtomically(File(context.filesDir, "setup_ready"), currentVersionText) }
+            }
+            throw t
+        }
+    }
+        val target = File(rootfs, "usr/local/bin/opencode")
         val failed = File(rootfs, "usr/local/bin/opencode.failed-${System.currentTimeMillis()}")
         var currentMoved = false
         try {
