@@ -30,6 +30,10 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -57,14 +61,45 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setup = SetupManager(this)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
-        window.statusBarColor = Color.parseColor("#101010")
-        window.navigationBarColor = Color.parseColor("#101010")
-        window.decorView.systemUiVisibility = 0
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= 29) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val web = webView
+                when {
+                    web != null && web.canGoBack() -> web.goBack()
+                    web != null -> showSetupAgain()
+                    else -> finish()
+                }
+            }
+        })
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
         }
         buildSetupScreen()
         refreshButtons()
+    }
+
+    private fun applySystemBarInsets(root: View) {
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safeInsets = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(
+                maxOf(safeInsets.left, imeInsets.left),
+                safeInsets.top,
+                maxOf(safeInsets.right, imeInsets.right),
+                maxOf(safeInsets.bottom, imeInsets.bottom)
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
     }
 
     private fun buildSetupScreen() {
@@ -199,6 +234,7 @@ class MainActivity : ComponentActivity() {
         pageScroll.addView(page)
         content.addView(pageScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(content)
+        applySystemBarInsets(content)
         appendLog("Ready. Install the Debian environment, then run the runtime check.\n")
     }
 
@@ -520,6 +556,7 @@ class MainActivity : ComponentActivity() {
         webView = web
         content.addView(web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(content)
+        applySystemBarInsets(content)
         web.loadUrl(SERVER_URL)
     }
 
@@ -539,11 +576,6 @@ class MainActivity : ComponentActivity() {
             fileChooser?.onReceiveValue(result)
             fileChooser = null
         }
-    }
-
-    override fun onBackPressed() {
-        val web = webView
-        if (web != null && web.canGoBack()) web.goBack() else if (web != null) showSetupAgain() else super.onBackPressed()
     }
 
     private fun setBusy(busy: Boolean, label: String? = null) {
