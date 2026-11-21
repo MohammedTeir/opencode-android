@@ -10,6 +10,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
@@ -59,6 +60,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var rootHardLinkButton: Button
     private lateinit var rootStatus: TextView
     private lateinit var rootHardLinkSwitch: CheckBox
+    private lateinit var storageStatus: TextView
+    private lateinit var storageButton: Button
     private lateinit var serverButton: Button
     private lateinit var activityPanel: ScrollView
     private lateinit var activityToggle: TextView
@@ -92,6 +95,11 @@ class MainActivity : ComponentActivity() {
         }
         buildSetupScreen()
         refreshButtons()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::storageStatus.isInitialized) refreshStorageAccessUi()
     }
 
     private fun applySystemBarInsets(root: View) {
@@ -223,6 +231,29 @@ class MainActivity : ComponentActivity() {
         })
         page.addView(maintenance)
 
+        val storageCard = card("#1B1919", 14, "#302B2B").apply {
+            setPadding(dp(13), dp(12), dp(13), dp(12))
+        }
+        storageCard.addView(text("OPTIONAL ANDROID STORAGE", 10f, "#D8D2D2", true).apply {
+            letterSpacing = 0.08f
+        })
+        storageCard.addView(text(
+            "Allow Debian and OpenCode to work with files in shared storage, such as Downloads, Documents, and project folders. Android's system permission is required.",
+            11f, "#A9A2A2", false
+        ).apply {
+            setPadding(0, dp(5), 0, dp(7))
+        })
+        storageStatus = text("Checking shared-storage access…", 11f, "#A9A2A2", true).apply {
+            setPadding(0, dp(4), 0, dp(9))
+        }
+        storageCard.addView(storageStatus)
+        storageButton = compactButton("Grant access", false) { requestSharedStorageAccess() }
+        storageCard.addView(storageButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
+        page.addView(storageCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
+        refreshStorageAccessUi()
+
         val rootCard = card("#1B1919", 14, "#302B2B").apply {
             setPadding(dp(13), dp(12), dp(13), dp(12))
         }
@@ -270,7 +301,7 @@ class MainActivity : ComponentActivity() {
             topMargin = dp(8)
         })
 
-        page.addView(text("Runs locally at 127.0.0.1 · Android storage is not mounted into Debian.", 10f, "#777070", false).apply {
+        page.addView(text("Runs locally at 127.0.0.1 · shared storage is optional and permission-gated.", 10f, "#777070", false).apply {
             setPadding(dp(2), dp(5), dp(2), dp(10))
         })
 
@@ -579,6 +610,52 @@ class MainActivity : ComponentActivity() {
                 refreshButtons()
             }
         }
+    }
+
+    private fun refreshStorageAccessUi() {
+        if (!StorageAccessManager.isSupported()) {
+            storageStatus.text = "Direct shared-storage mounting requires Android 11 or newer."
+            storageButton.text = "Unavailable"
+            storageButton.isEnabled = false
+            return
+        }
+        storageButton.isEnabled = true
+        if (StorageAccessManager.hasAccess(this)) {
+            storageStatus.text = "Enabled · Debian paths: /sdcard and /storage/emulated/0"
+            storageButton.text = "Manage access"
+        } else {
+            storageStatus.text = "Disabled · Debian cannot access Android shared storage."
+            storageButton.text = "Grant access"
+        }
+    }
+
+    private fun requestSharedStorageAccess() {
+        if (!StorageAccessManager.isSupported()) {
+            Toast.makeText(this, "Direct shared-storage access requires Android 11 or newer", Toast.LENGTH_LONG).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Allow shared-storage access?")
+            .setMessage(
+                "This optional permission lets the Debian environment and OpenCode read and write files in shared storage, including Downloads, Documents, and project folders. " +
+                    "It does not grant access to other apps' private data, and Android still restricts Android/data and Android/obb. " +
+                    "You can revoke this permission at any time in Android settings. OpenCode will still ask for its own external_directory permission when required."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Open settings") { _, _ ->
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                        data = Uri.parse("package:$packageName")
+                    })
+                } catch (_: Exception) {
+                    try {
+                        startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                    } catch (error: Exception) {
+                        Toast.makeText(this, "Could not open Android storage settings: ${error.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .show()
     }
 
     private fun requestBatteryExemption() {
