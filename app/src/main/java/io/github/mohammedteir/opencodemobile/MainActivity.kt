@@ -251,37 +251,59 @@ class MainActivity : ComponentActivity() {
         })
         page.addView(maintenance)
 
-        val storageCard = card("#1B1919", 14, "#302B2B").apply {
-            setPadding(dp(13), dp(12), dp(13), dp(12))
+        val storageCard = card("#1B1919", 16, "#302B2B").apply {
+            setPadding(dp(15), dp(14), dp(15), dp(14))
         }
-        storageCard.addView(text("OPTIONAL ANDROID STORAGE", 10f, "#D8D2D2", true).apply {
-            letterSpacing = 0.08f
-        })
+        storageCard.addView(text("SHARED STORAGE", 10f, "#D8D2D2", true).apply { letterSpacing = 0.09f })
         storageCard.addView(text(
-            "Allow Debian and OpenCode to work with files in shared storage, such as Downloads, Documents, and project folders. Android's system permission is required.",
+            "Work with projects and files stored on your phone, including Downloads and Documents.",
             11f, "#A9A2A2", false
-        ).apply {
-            setPadding(0, dp(5), 0, dp(7))
-        })
-        storageStatus = text("Checking shared-storage access…", 11f, "#A9A2A2", true).apply {
-            setPadding(0, dp(4), 0, dp(9))
+        ).apply { setPadding(0, dp(5), 0, dp(10)) })
+        val storageStateRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(9), dp(10), dp(9))
+            background = rounded("#292525", 10)
         }
-        storageCard.addView(storageStatus)
-        storageButton = compactButton("Grant access", false) { requestSharedStorageAccess() }
-        storageCard.addView(storageButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
-        workspacePathLabel = text("Workspace directory: /root", 11f, "#D8D2D2", true).apply {
-            setPadding(0, dp(12), 0, dp(7))
+        storageStateRow.addView(View(this).apply { background = rounded("#827B7B", 20) },
+            LinearLayout.LayoutParams(dp(8), dp(8)))
+        storageStatus = text("Checking access…", 11f, "#D8D2D2", true).apply { setPadding(dp(9), 0, 0, 0) }
+        storageStateRow.addView(storageStatus, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        storageCard.addView(storageStateRow)
+        storageButton = compactButton("Allow shared storage", false) { requestSharedStorageAccess() }
+        storageCard.addView(storageButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)).apply { topMargin = dp(9) })
+
+        val workspacePanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded("#171515", 12, "#302B2B")
+            setPadding(dp(11), dp(11), dp(11), dp(11))
         }
-        storageCard.addView(workspacePathLabel)
+        workspacePanel.addView(text("PROJECT WORKSPACE", 9f, "#A9A2A2", true).apply { letterSpacing = 0.08f })
+        workspacePathLabel = text("/root", 12f, "#F1ECEC", true).apply { setPadding(0, dp(5), 0, dp(9)) }
+        workspacePanel.addView(workspacePathLabel)
         workspaceChooseButton = compactButton("Choose project folder", false) { chooseWorkspaceDirectory() }
-        storageCard.addView(workspaceChooseButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
-            bottomMargin = dp(6)
-        })
+        workspacePanel.addView(workspaceChooseButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
+        storageCard.addView(workspacePanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
+
         storageTestButton = compactButton("Test shared storage", false) { runSharedStorageTest() }
-        storageCard.addView(storageTestButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
-        page.addView(storageCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(8)
-        })
+        val storageAdvancedPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            addView(storageTestButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
+        }
+        val storageAdvancedToggle = text("Advanced storage tools  ↓", 11f, "#A9A2A2", true).apply {
+            setPadding(0, dp(12), 0, dp(1))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                val expanded = storageAdvancedPanel.visibility != View.VISIBLE
+                storageAdvancedPanel.visibility = if (expanded) View.VISIBLE else View.GONE
+                text = if (expanded) "Advanced storage tools  ↑" else "Advanced storage tools  ↓"
+            }
+        }
+        storageCard.addView(storageAdvancedToggle)
+        storageCard.addView(storageAdvancedPanel)
+        page.addView(storageCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
         refreshStorageAccessUi()
 
         val rootCard = card("#1B1919", 14, "#302B2B").apply {
@@ -655,7 +677,7 @@ class MainActivity : ComponentActivity() {
             stored == "/root" || available -> stored
             else -> "$stored (unavailable; server will fall back to /root)"
         }
-        workspacePathLabel.text = "Workspace directory: $selected"
+        workspacePathLabel.text = selected
         val enabled = StorageAccessManager.sharedStorageDirectory() != null
         workspaceChooseButton.isEnabled = enabled && !OpenCodeService.isRunning
         storageTestButton.isEnabled = enabled
@@ -738,20 +760,14 @@ class MainActivity : ComponentActivity() {
                     check(process.exitValue() == 0) { output.ifBlank { "Shared-storage test failed." } }
                     output
                 }
-                appendLog("Shared-storage test passed: $result\n")
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Shared storage works")
-                    .setMessage(result + "\n\nThe temporary test file was removed.")
-                    .setPositiveButton("OK", null)
-                    .show()
+                storageStatus.text = "Access verified · project files are reachable"
+                storageStatus.setTextColor(Color.parseColor("#B8D8B8"))
+                appendLog("Shared-storage test passed: $result\\n")
             } catch (error: Throwable) {
                 val message = error.message ?: "Unknown storage test failure"
-                appendLog("Shared-storage test failed: $message\n")
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Shared-storage test failed")
-                    .setMessage(message)
-                    .setPositiveButton("OK", null)
-                    .show()
+                storageStatus.text = "Storage test failed · $message"
+                storageStatus.setTextColor(Color.parseColor("#E3B0A8"))
+                appendLog("Shared-storage test failed: $message\\n")
             } finally {
                 storageTestButton.text = "Test shared storage"
                 refreshStorageAccessUi()
@@ -770,11 +786,13 @@ class MainActivity : ComponentActivity() {
         storageButton.isEnabled = true
         val storageEnabled = StorageAccessManager.sharedStorageDirectory() != null
         if (storageEnabled) {
-            storageStatus.text = "Enabled · Debian paths: /sdcard and /storage/emulated/0"
-            storageButton.text = "Manage access"
+            storageStatus.text = "Enabled · /sdcard and /storage/emulated/0"
+            storageButton.text = "Manage permission"
+            storageButton.isEnabled = true
         } else {
-            storageStatus.text = "Disabled · Debian cannot access Android shared storage."
-            storageButton.text = "Grant access"
+            storageStatus.text = "Not enabled · shared files are unavailable to Debian"
+            storageButton.text = "Allow shared storage"
+            storageButton.isEnabled = true
         }
         val preferences = getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE)
         if (OpenCodeService.isRunning &&
@@ -1005,9 +1023,10 @@ class MainActivity : ComponentActivity() {
 
     private fun appendLog(message: String) = runOnUiThread {
         logs.append(message)
-        activityPanel.visibility = View.VISIBLE
-        activityToggle.text = "Hide  ↑"
-        activityPanel.post { activityPanel.fullScroll(View.FOCUS_DOWN) }
+        // Keep the setup screen calm; details remain available in Activity log.
+        if (activityPanel.visibility == View.VISIBLE) {
+            activityPanel.post { activityPanel.fullScroll(View.FOCUS_DOWN) }
+        }
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
