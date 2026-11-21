@@ -119,8 +119,10 @@ class SetupManager(private val context: Context) {
     fun hasPreviousOpenCode(): Boolean {
         val backup = File(rootfs, "usr/local/bin/opencode.previous")
         val version = File(context.filesDir, "opencode.previous.version")
-        return backup.isFile && backup.canExecute() && version.isFile &&
-            parseVersion(version.readText().trim()) != null
+        return runCatching {
+            backup.isFile && backup.canExecute() && version.isFile &&
+                parseVersion(version.readText().trim()) != null
+        }.getOrDefault(false)
     }
 
     /**
