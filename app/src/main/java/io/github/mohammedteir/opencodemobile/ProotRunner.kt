@@ -17,14 +17,11 @@ object ProotRunner {
 
         // Add the same optional shared-storage view to every PRoot invocation.
         // Android's special access is checked each time, so revocation is respected.
-        if (StorageAccessManager.hasAccess(context)) {
-            val hostStorage = StorageAccessManager.sharedStorageDirectory(context)
-            if (hostStorage != null) {
-                val targets = runCatching { StorageAccessManager.prepareMountTargets(root) }
-                    .getOrDefault(emptyList())
-                for (guestPath in targets) {
-                    args += listOf("-b", "${hostStorage.absolutePath}:$guestPath")
-                }
+        val hostStorage = StorageAccessManager.sharedStorageDirectory()
+        if (hostStorage != null) {
+            val targets = StorageAccessManager.prepareMountTargets(root)
+            for (guestPath in targets) {
+                args += listOf("-b", "${hostStorage.absolutePath}:$guestPath")
             }
         }
 
