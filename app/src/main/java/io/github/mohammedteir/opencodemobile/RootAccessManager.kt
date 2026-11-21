@@ -83,7 +83,7 @@ object RootAccessManager {
             set -eu
             probe=$probePath
             mkdir "$probe"
-            trap 'rm -f $source $link; rmdir "$probe" 2>/dev/null || true' EXIT
+            trap "rm -rf $probePath" EXIT
             printf 'opencode-root-hardlink-probe' > $source
             ln $source $link
             source_inode=$(stat -c %i $source)
@@ -116,10 +116,9 @@ object RootAccessManager {
         require(canonical.isDirectory && canonical.canRead()) {
             "The app-private diagnostic directory is unavailable."
         }
-        val appFiles = File(directory.parentFile?.parentFile, "files").canonicalFile
-        // cacheDir is normally a sibling of filesDir under the app's private data
-        // directory. This prevents accidentally probing arbitrary user paths.
-        require(canonical.parentFile == appFiles.parentFile) {
+        val siblingFiles = File(directory.parentFile, "files").canonicalFile
+        // cacheDir and filesDir must be siblings inside this application's private data directory.
+        require(canonical.parentFile == siblingFiles.parentFile) {
             "Refusing to run a root filesystem probe outside this app's private data directory."
         }
         return canonical
