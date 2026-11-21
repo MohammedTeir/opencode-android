@@ -526,10 +526,10 @@ class MainActivity : ComponentActivity() {
                         echo "=== DNS resolution (system resolver; no provider allowlist) ==="
                         dns_failures=0
                         for host in generativelanguage.googleapis.com api.openai.com api.anthropic.com github.com deb.debian.org; do
-                            if getent ahosts "${'\u0024'}host" >/dev/null 2>&1; then
-                                echo "DNS_OK ${'\u0024'}host"
+                            if getent ahosts "${'$'}host" >/dev/null 2>&1; then
+                                echo "DNS_OK ${'$'}host"
                             else
-                                echo "DNS_FAIL ${'\u0024'}host"
+                                echo "DNS_FAIL ${'$'}host"
                                 dns_failures=$((dns_failures + 1))
                             fi
                         done
@@ -537,22 +537,22 @@ class MainActivity : ComponentActivity() {
                         echo "=== HTTPS connectivity ==="
                         if command -v curl >/dev/null 2>&1; then
                             for url in https://generativelanguage.googleapis.com/ https://api.openai.com/ https://github.com/; do
-                                result=$(curl -sS -o /dev/null -w "HTTP %{http_code}" --connect-timeout 8 --max-time 15 "${'\u0024'}url" 2>&1)
+                                result=$(curl -sS -o /dev/null -w "HTTP %{http_code}" --connect-timeout 8 --max-time 15 "${'$'}url" 2>&1)
                                 rc=$?
-                                if [ "${'\u0024'}rc" -eq 0 ]; then
-                                    echo "HTTPS_OK ${'\u0024'}url ${'\u0024'}result"
+                                if [ "${'$'}rc" -eq 0 ]; then
+                                    echo "HTTPS_OK ${'$'}url ${'$'}result"
                                 else
-                                    echo "HTTPS_FAIL ${'\u0024'}url (curl exit ${'\u0024'}rc): ${'\u0024'}result"
+                                    echo "HTTPS_FAIL ${'$'}url (curl exit ${'$'}rc): ${'$'}result"
                                 fi
                             done
                         else
                             echo "HTTPS_SKIPPED curl is not installed yet; rerun this check after package installation."
                         fi
                         echo
-                        if [ "${'\u0024'}dns_failures" -eq 0 ]; then
+                        if [ "${'$'}dns_failures" -eq 0 ]; then
                             echo "DNS_SUMMARY all tested hostnames resolved"
                         else
-                            echo "DNS_SUMMARY ${'\u0024'}dns_failures hostname(s) failed; inspect DNS configuration and active Android network"
+                            echo "DNS_SUMMARY ${'$'}dns_failures hostname(s) failed; inspect DNS configuration and active Android network"
                         fi
                     """.trimIndent()
                     val p = ProotRunner.start(this@MainActivity, listOf("/bin/sh", "-c", script))
@@ -843,7 +843,7 @@ class MainActivity : ComponentActivity() {
                 }
                 storageStatus.text = "Access verified · project files are reachable"
                 storageStatus.setTextColor(Color.parseColor("#B8D8B8"))
-                appendLog("Shared-storage test passed: ${'\u0024'}result\n")
+                appendLog("Shared-storage test passed: ${'$'}result\n")
             } catch (error: Throwable) {
                 val message = error.message ?: "Unknown storage test failure"
                 storageStatus.text = "Storage test failed · $message"
