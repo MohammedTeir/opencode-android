@@ -27,7 +27,7 @@ The debug APK output is `app/build/outputs/apk/debug/app-debug.apk`. Install it 
 
 `.github/workflows/android-ci.yml` builds a debug APK on pushes to `main` and pull requests. `.github/workflows/android-release.yml` builds a signed release APK and creates a GitHub Release when a `v*` tag is pushed.
 
-Before the first signed release, add these repository Actions secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. Encode the release keystore as one-line Base64 for the first secret. Never commit a keystore or its passwords. No signing key has been created or supplied as part of this prototype. Without those secrets, the release workflow intentionally stops before signing. The project currently uses the prototype application ID `com.example.opencodemobile`; select a permanent package ID before public distribution.
+Release signing is configured with these repository Actions secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. The keystore is supplied to `ANDROID_KEYSTORE_BASE64` as one-line Base64; the configured key alias is `opencode-release`. The keystore and recovery values are backed up separately from this repository. Never commit a keystore, Base64 keystore content, or signing passwords. If the secrets are missing, the release workflow intentionally stops before signing. The project currently uses the prototype application ID `com.example.opencodemobile`; select a permanent package ID before public distribution.
 
 ## Pinned inputs
 
