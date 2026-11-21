@@ -45,7 +45,11 @@ class SetupManager(private val context: Context) {
         return compareVersions(update.version, current) > 0
     }
 
-    fun deletePreviousBinary(): Boolean = File(rootfs, "usr/local/bin/opencode.previous").delete()
+    fun deletePreviousBinary(): Boolean {
+        val deleted = File(rootfs, "usr/local/bin/opencode.previous").delete()
+        File(context.filesDir, "opencode.previous.version").delete()
+        return deleted
+    }
 
     suspend fun checkForUpdate(): OpenCodeUpdate = withContext(Dispatchers.IO) {
         val request = Request.Builder()
@@ -231,7 +235,9 @@ class SetupManager(private val context: Context) {
                 previousMoved = true
                 if (previousVersion != null) writeVersionAtomically(previousVersionFile, previousVersion)
                 else {
-                    previousVersionFile.delete()
+                    check(previousVersionFile.delete() || !previousVersionFile.exists()) {
+                        "Could not clear stale rollback metadata; the existing executable was restored."
+                    }
                     log("Previous binary retained, but its version is unknown; one-tap rollback is unavailable for it.")
                 }
             }
