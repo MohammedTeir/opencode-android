@@ -4,12 +4,20 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to publish (for example: v2.3.3)'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   release-apk:
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +46,14 @@ jobs:
               exit 1
             fi
           done
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+(\.[0-9]+){1,2}([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG. Expected a version such as v2.3.3." >&2
+            exit 1
+          fi
       - name: Decode signing keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -57,11 +73,11 @@ jobs:
         run: python3 scripts/check-elf-page-size.py --apk app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: opencode-mobile-${{ github.ref_name }}
+          name: opencode-mobile-${{ env.RELEASE_TAG }}
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 90
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" app/build/outputs/apk/release/app-release.apk --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$RELEASE_TAG" app/build/outputs/apk/release/app-release.apk --target "$GITHUB_SHA" --title "$RELEASE_TAG" --generate-notes
