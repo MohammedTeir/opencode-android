@@ -399,8 +399,9 @@ class SetupManager(private val context: Context) {
             extractArchive(archive, stage, compressed = "xz", log = log)
             postExtractFixes(stage, log)
             check(File(stage, "bin/bash").exists()) { "Archive did not contain a Debian root filesystem." }
+            RootfsIntegrity.writeInstallRecord(context, stage, rootfs)
             check(stage.renameTo(rootfs)) { "Could not activate the extracted rootfs." }
-            log("Debian rootfs installed.")
+            log("Debian rootfs installed and its pinned installation record was written.")
             // Keep the verified archive until activation succeeds so a failed extraction
             // can be retried without downloading the large rootfs again.
             archive.delete()
