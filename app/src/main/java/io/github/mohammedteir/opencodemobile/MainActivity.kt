@@ -333,7 +333,7 @@ class MainActivity : ComponentActivity() {
             isChecked = RootAccessManager.isRootHardLinksEnabled(this@MainActivity)
             setOnCheckedChangeListener { _, checked ->
                 RootAccessManager.setRootHardLinksEnabled(this@MainActivity, checked)
-                appendLog(if (checked) "Root-assisted Debian hard links enabled by user.\\n" else "Root-assisted Debian hard links disabled by user.\\n")
+                appendLog(if (checked) "Root-assisted Debian hard links enabled by user.\n" else "Root-assisted Debian hard links disabled by user.\n")
             }
         }
         val rootAdvancedPanel = LinearLayout(this).apply {
@@ -738,10 +738,10 @@ class MainActivity : ComponentActivity() {
         val pickerMessage = buildString {
             append(guestCurrent ?: folder.name)
             when {
-                listing.isFailure -> append("\\n\\nCould not list this folder: ${listing.exceptionOrNull()?.message ?: "unknown error"}")
-                listing.getOrNull() == null -> append("\\n\\nThis folder could not be listed.")
-                children.isEmpty() -> append("\\n\\nNo subfolders found. You can select this folder or go back.")
-                else -> append("\\n\\nChoose a subfolder, or use the current folder.")
+                listing.isFailure -> append("\n\nCould not list this folder: ${listing.exceptionOrNull()?.message ?: "unknown error"}")
+                listing.getOrNull() == null -> append("\n\nThis folder could not be listed.")
+                children.isEmpty() -> append("\n\nNo subfolders found. You can select this folder or go back.")
+                else -> append("\n\nChoose a subfolder, or use the current folder.")
             }
         }
         val dialog = AlertDialog.Builder(this)
@@ -759,7 +759,7 @@ class MainActivity : ComponentActivity() {
                         .putString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, guestPath)
                         .apply()
                     refreshWorkspaceLabel()
-                    appendLog("Workspace directory selected: $guestPath\\n")
+                    appendLog("Workspace directory selected: $guestPath\n")
                     Toast.makeText(this, "Workspace saved", Toast.LENGTH_SHORT).show()
                 }
             }
@@ -799,12 +799,12 @@ class MainActivity : ComponentActivity() {
                 }
                 storageStatus.text = "Access verified · project files are reachable"
                 storageStatus.setTextColor(Color.parseColor("#B8D8B8"))
-                appendLog("Shared-storage test passed: $result\\n")
+                appendLog("Shared-storage test passed: $result\n")
             } catch (error: Throwable) {
                 val message = error.message ?: "Unknown storage test failure"
                 storageStatus.text = "Storage test failed · $message"
                 storageStatus.setTextColor(Color.parseColor("#E3B0A8"))
-                appendLog("Shared-storage test failed: $message\\n")
+                appendLog("Shared-storage test failed: $message\n")
             } finally {
                 storageTestButton.text = "Test shared storage"
                 refreshStorageAccessUi()
