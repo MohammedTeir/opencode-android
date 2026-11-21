@@ -54,7 +54,12 @@ class SetupManager(private val context: Context) {
         http.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "Update check failed: HTTP ${response.code}" }
             val releases = JSONArray(response.body?.string().orEmpty())
-            val latestV2 = (0 until releases.length())
+            // Pin updates to the major version bundled by this app. A deliberate
+            // bootstrap upgrade changes OPENCODE_VERSION and therefore the update channel.
+            val supportedMajor = parseVersion(OPENCODE_VERSION)?.firstOrNull()
+                ?: error("Configured OpenCode version is invalid: $OPENCODE_VERSION")
+
+            val latestSupportedRelease = (0 until releases.length())
                 .mapNotNull { releases.optJSONObject(it) }
                 .mapNotNull { release ->
                     if (release.optBoolean("draft") || release.optBoolean("prerelease")) {
@@ -62,15 +67,16 @@ class SetupManager(private val context: Context) {
                     }
                     val version = parseVersion(release.optString("tag_name").removePrefix("v"))
                         ?: return@mapNotNull null
-                    if (version.firstOrNull() != 2) return@mapNotNull null
+                    if (version.firstOrNull() != supportedMajor) return@mapNotNull null
                     release to version
                 }
                 .maxWithOrNull { left, right -> compareVersions(left.second, right.second) }
-                ?: error("No stable OpenCode 2.x release was found.")
+                ?: error("No stable OpenCode $supportedMajor.x release was found.")
 
-            val release = latestV2.first
-            val version = latestV2.second
-            val assets = release.optJSONArray("assets") ?: error("Latest OpenCode 2.x release has no assets.")
+            val release = latestSupportedRelease.first
+            val version = latestSupportedRelease.second
+            val assets = release.optJSONArray("assets")
+                ?: error("Latest OpenCode $supportedMajor.x release has no assets.")
             var asset: JSONObject? = null
             for (index in 0 until assets.length()) {
                 val candidate = assets.optJSONObject(index) ?: continue
@@ -79,11 +85,11 @@ class SetupManager(private val context: Context) {
                     break
                 }
             }
-            val selected = asset ?: error("Latest OpenCode 2.x release has no ARM64 OpenCode asset.")
+            val selected = asset ?: error("Latest OpenCode $supportedMajor.x release has no ARM64 OpenCode asset.")
             val url = selected.optString("browser_download_url")
             check(url.startsWith("https://github.com/")) { "Update asset is not hosted on GitHub." }
             val digest = selected.optString("digest").removePrefix("sha256:").lowercase()
-            check(digest.matches(Regex("[0-9a-f]{64}"))) { "Latest OpenCode 2.x release has no valid SHA-256 digest." }
+            check(digest.matches(Regex("[0-9a-f]{64}"))) { "Latest OpenCode $supportedMajor.x release has no valid SHA-256 digest." }
             OpenCodeUpdate(version, url, digest)
         }
     }
