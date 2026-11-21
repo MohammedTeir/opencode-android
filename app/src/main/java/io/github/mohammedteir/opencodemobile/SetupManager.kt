@@ -104,24 +104,24 @@ class SetupManager(private val context: Context) {
         downloadVerified(update.url, archive, update.sha256, progress) {
             log(it)
         }
-            val target = File(rootfs, "usr/local/bin/opencode")
-            val staging = File(rootfs, ".opencode-update-${System.currentTimeMillis()}")
-            val backup = File(rootfs, "usr/local/bin/opencode.previous")
+        val target = File(rootfs, "usr/local/bin/opencode")
+        val staging = File(rootfs, ".opencode-update-${System.currentTimeMillis()}")
+        val backup = File(rootfs, "usr/local/bin/opencode.previous")
+        try {
+            installOpenCodeTar(archive, staging)
+            check(staging.canExecute()) { "Downloaded update did not contain an executable OpenCode binary." }
+            Files.move(target.toPath(), backup.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             try {
-                installOpenCodeTar(archive, staging)
-                check(staging.canExecute()) { "Downloaded update did not contain an executable OpenCode binary." }
-                Files.move(target.toPath(), backup.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                try {
-                    Files.move(staging.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                } catch (t: Throwable) {
-                    Files.move(backup.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                    throw t
-                }
-                File(context.filesDir, "setup_ready").writeText("${update.version}\n")
-                log("OpenCode V${update.displayVersion} installed. Previous binary kept at usr/local/bin/opencode.previous.")
-            } finally {
-                if (staging.exists()) staging.delete()
+                Files.move(staging.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            } catch (t: Throwable) {
+                Files.move(backup.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                throw t
             }
+            File(context.filesDir, "setup_ready").writeText("${update.version}\n")
+            log("OpenCode V${update.displayVersion} installed. Previous binary kept at usr/local/bin/opencode.previous.")
+        } finally {
+            if (staging.exists()) staging.delete()
+        }
     }
 
     suspend fun installRootfs(log: (String) -> Unit, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
