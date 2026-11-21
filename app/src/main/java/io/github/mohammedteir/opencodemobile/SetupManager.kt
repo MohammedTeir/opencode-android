@@ -21,6 +21,10 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
 class SetupManager(private val context: Context) {
+    data class OpenCodeUpdate(val version: List<Int>, val url: String, val sha256: String) {
+        val displayVersion: String get() = version.joinToString(".")
+    }
+
     private val rootfs = File(context.filesDir, "rootfs")
     private val http = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -354,10 +358,6 @@ class SetupManager(private val context: Context) {
         const val OPENCODE_SHA256 = "9d10185acdb72336e086e699ca363a6065f410fd3c1caed0dc8046e95ac06ccb"
         const val LATEST_RELEASE_URL = "https://api.github.com/repos/anomalyco/opencode/releases/latest"
         const val OPENCODE_ASSET_NAME = "opencode-linux-arm64.tar.gz"
-
-        data class OpenCodeUpdate(val version: List<Int>, val url: String, val sha256: String) {
-            val displayVersion: String get() = version.joinToString(".")
-        }
 
         private fun parseVersion(value: String): List<Int>? {
             val parts = value.substringBefore('-').split('.')
