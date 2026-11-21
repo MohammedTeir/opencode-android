@@ -1138,7 +1138,6 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this@MainActivity, "Could not open authenticated workspace", Toast.LENGTH_LONG).show()
                     return@launch
                 }
-                if (setup.deletePreviousBinary()) appendLog("Verified updated OpenCode server; previous binary removed.\n")
                 status.text = "Server ready · opening workspace"
                 showWebView(pairingCode)
             } else {
