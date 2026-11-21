@@ -16,7 +16,8 @@ object RootOperationLog {
     fun append(context: Context, operation: String, success: Boolean, details: String) {
         val file = File(context.filesDir, FILE_NAME)
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-        val sanitized = details.replace(Regex("(?i)(password|token|authorization)=\\S+"), "\\$1=[redacted]")
+        val sanitized = Regex("(?i)(password|token|authorization)=\\S+")
+            .replace(details) { match -> match.groupValues[1] + "=[redacted]" }
             .take(8_000)
         file.appendText(
             "[$timestamp] ${if (success) "SUCCESS" else "FAILED"} · $operation\n" +
