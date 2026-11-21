@@ -111,9 +111,15 @@ object RootAccessManager {
      * Read-only diagnostics of the app-private cache filesystem and Android
      * security state. The path is canonicalized and shell-quoted internally.
      */
-    fun runDiagnostics(appPrivateDirectory: File, timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS): OperationResult {
+    fun runDiagnostics(appPrivateDirectory: File, rootfsDirectory: File, timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS): OperationResult {
         val directory = validatedPrivateDirectory(appPrivateDirectory)
         val path = shellQuote(directory.absolutePath)
+        val rootfs = rootfsDirectory.canonicalFile
+        val expectedFilesDirectory = File(directory.parentFile, "files").canonicalFile
+        require(rootfs.parentFile == expectedFilesDirectory) {
+            "Refusing to inspect a rootfs outside this app's private files directory."
+        }
+        val rootfsPath = shellQuote(rootfs.absolutePath)
         val script = """
             set -u
             echo '=== UID ==='
@@ -126,6 +132,13 @@ object RootAccessManager {
             df -h $path
             echo '=== Filesystem details ==='
             stat -f $path 2>&1 || true
+            echo '=== Debian rootfs ==='
+            if [ -d $rootfsPath ]; then
+                ls -ld $rootfsPath
+                du -sh $rootfsPath 2>&1 || true
+            else
+                echo 'Debian rootfs is not installed.'
+            fi
         """.trimIndent()
         return executeFixed("Root filesystem diagnostics", script, timeoutSeconds) { output, exitCode ->
             OperationResult(
