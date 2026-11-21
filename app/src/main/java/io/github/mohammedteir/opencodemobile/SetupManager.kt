@@ -146,8 +146,8 @@ class SetupManager(private val context: Context) {
             }
             Files.move(backup.toPath(), target.toPath())
             writeVersionAtomically(File(context.filesDir, "setup_ready"), previousVersion)
-            check(versionFile.delete() || !versionFile.exists()) {
-                "Restored OpenCode, but could not clear previous-version metadata."
+            if (!versionFile.delete() && versionFile.exists()) {
+                log("Previous-version metadata could not be cleared; rollback is disabled until it is cleaned up.")
             }
             log("Restored OpenCode V$previousVersion. The replaced executable was retained as ${failed.name}.")
         } catch (t: Throwable) {
@@ -231,7 +231,7 @@ class SetupManager(private val context: Context) {
         val temp = File(destination.parentFile ?: context.filesDir, "${destination.name}.tmp-${System.currentTimeMillis()}")
         try {
             FileOutputStream(temp).use { output ->
-                output.write("$version\\n".toByteArray(Charsets.UTF_8))
+                output.write((version + "\n").toByteArray(Charsets.UTF_8))
                 output.fd.sync()
             }
             try {
