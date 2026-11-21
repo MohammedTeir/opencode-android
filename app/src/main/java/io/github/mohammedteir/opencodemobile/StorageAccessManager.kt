@@ -26,6 +26,7 @@ object StorageAccessManager {
     }
 
     fun prepareDefaultWorkspace(rootfs: File): File {
+        check(File(rootfs, "bin/bash").isFile) { "Debian environment is not installed." }
         val root = File(rootfs, "root")
         check(!Files.isSymbolicLink(root.toPath())) { "Debian /root must not be a symbolic link." }
         val projects = File(root, "projects")
@@ -48,7 +49,8 @@ object StorageAccessManager {
         return when {
             normalized == "/root" || normalized.startsWith("/root/") -> {
                 val root = File(rootfs, "root")
-                isSafeDirectory(root, normalized.removePrefix("/root").trimStart('/'))
+                !Files.isSymbolicLink(root.toPath()) &&
+                    isSafeDirectory(root, normalized.removePrefix("/root").trimStart('/'))
             }
             normalized == "/sdcard" || normalized.startsWith("/sdcard/") ||
                 normalized == "/storage/emulated/0" || normalized.startsWith("/storage/emulated/0/") -> {
