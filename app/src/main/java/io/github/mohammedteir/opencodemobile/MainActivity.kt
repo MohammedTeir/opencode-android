@@ -738,6 +738,7 @@ class MainActivity : ComponentActivity() {
             storageStatus.text = "Direct shared-storage mounting requires Android 11 or newer."
             storageButton.text = "Unavailable"
             storageButton.isEnabled = false
+            refreshWorkspaceLabel()
             return
         }
         storageButton.isEnabled = true
