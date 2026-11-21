@@ -23,6 +23,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var rootDiagnosticsButton: Button
     private lateinit var rootHardLinkButton: Button
     private lateinit var rootStatus: TextView
+    private lateinit var rootHardLinkSwitch: CheckBox
     private lateinit var serverButton: Button
     private lateinit var activityPanel: ScrollView
     private lateinit var activityToggle: TextView
@@ -247,6 +249,21 @@ class MainActivity : ComponentActivity() {
         rootTools.addView(rootHardLinkButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(4) })
         rootCard.addView(rootTools, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
             topMargin = dp(7)
+        })
+        rootHardLinkSwitch = CheckBox(this).apply {
+            text = "Use root-assisted hard links during Debian installation"
+            textSize = 11f
+            setTextColor(Color.parseColor("#D8D2D2"))
+            buttonTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#D8D2D2"))
+            isEnabled = RootAccessManager.isRootHardLinksVerified(this@MainActivity)
+            isChecked = RootAccessManager.isRootHardLinksEnabled(this@MainActivity)
+            setOnCheckedChangeListener { _, checked ->
+                RootAccessManager.setRootHardLinksEnabled(this@MainActivity, checked)
+                appendLog(if (checked) "Root-assisted Debian hard links enabled by user.\\n" else "Root-assisted Debian hard links disabled by user.\\n")
+            }
+        }
+        rootCard.addView(rootHardLinkSwitch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(5)
         })
         page.addView(rootCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(8)
@@ -537,6 +554,11 @@ class MainActivity : ComponentActivity() {
                 val result = withContext(Dispatchers.IO) { operation() }
                 rootStatus.text = result.message
                 rootStatus.setTextColor(Color.parseColor(if (result.success) "#A8D5B5" else "#E3B0A8"))
+                if (label == "Root hard-link test") {
+                    RootAccessManager.setRootHardLinksVerified(this@MainActivity, result.success)
+                    rootHardLinkSwitch.isEnabled = result.success
+                    rootHardLinkSwitch.isChecked = result.success && RootAccessManager.isRootHardLinksEnabled(this@MainActivity)
+                }
                 RootOperationLog.append(this@MainActivity, result.title, result.success, result.message + "\n" + result.output)
                 appendLog("[$label] ${result.message}\n")
                 if (result.output.isNotBlank()) appendLog(result.output + "\n")
@@ -707,6 +729,7 @@ class MainActivity : ComponentActivity() {
         rootAccessButton.isEnabled = !busy
         rootDiagnosticsButton.isEnabled = !busy
         rootHardLinkButton.isEnabled = !busy
+        rootHardLinkSwitch.isEnabled = !busy && RootAccessManager.isRootHardLinksVerified(this)
         progress.visibility = if (busy) View.VISIBLE else View.GONE
         if (busy) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
