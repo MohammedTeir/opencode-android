@@ -628,7 +628,11 @@ class MainActivity : ComponentActivity() {
         val rootfs = File(filesDir, "rootfs")
         val stored = getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE)
             .getString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, "/root") ?: "/root"
-        val selected = if (StorageAccessManager.isGuestWorkspaceAvailable(rootfs, stored)) stored else "/root"
+        val available = StorageAccessManager.isGuestWorkspaceAvailable(rootfs, stored)
+        val selected = when {
+            stored == "/root" || available -> stored
+            else -> "$stored (unavailable; server will fall back to /root)"
+        }
         workspacePathLabel.text = "Workspace directory: $selected"
         val enabled = StorageAccessManager.sharedStorageDirectory() != null
         workspaceChooseButton.isEnabled = enabled && !OpenCodeService.isRunning
@@ -802,10 +806,8 @@ class MainActivity : ComponentActivity() {
         appendLog("Starting OpenCode on 127.0.0.1:4096…\n")
         val selectedWorkspace = getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE)
             .getString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, "/root") ?: "/root"
-        val rootfs = File(filesDir, "rootfs")
-        val safeWorkspace = if (StorageAccessManager.isGuestWorkspaceAvailable(rootfs, selectedWorkspace)) selectedWorkspace else "/root"
         val service = Intent(this, OpenCodeService::class.java)
-            .putExtra(OpenCodeService.EXTRA_WORKING_DIRECTORY, safeWorkspace)
+            .putExtra(OpenCodeService.EXTRA_WORKING_DIRECTORY, selectedWorkspace)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service)
         lifecycleScope.launch {
             val ready = withContext(Dispatchers.IO) {
