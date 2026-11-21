@@ -4,7 +4,12 @@ import android.content.Context
 import java.io.File
 
 object ProotRunner {
-    fun start(context: Context, command: List<String>, extraEnv: Map<String, String> = emptyMap()): Process {
+    fun start(
+        context: Context,
+        command: List<String>,
+        extraEnv: Map<String, String> = emptyMap(),
+        workingDirectory: String = "/root"
+    ): Process {
         val libDir = File(context.applicationInfo.nativeLibraryDir)
         val root = File(context.filesDir, "rootfs")
         val tmp = File(context.filesDir, "tmp").apply { mkdirs() }
@@ -14,18 +19,15 @@ object ProotRunner {
             "-r", root.absolutePath,
             "-b", "/dev", "-b", "/proc", "-b", "/sys"
         )
-
-        // Add the same optional shared-storage view to every PRoot invocation.
-        // Android's special access is checked each time, so revocation is respected.
         val hostStorage = StorageAccessManager.sharedStorageDirectory()
         if (hostStorage != null) {
             val targets = StorageAccessManager.prepareMountTargets(root)
-            for (guestPath in targets) {
-                args += listOf("-b", "${hostStorage.absolutePath}:$guestPath")
-            }
+            for (guestPath in targets) args += listOf("-b", "${hostStorage.absolutePath}:$guestPath")
         }
-
-        args += listOf("-w", "/root")
+        val safeWorkingDirectory = if (
+            StorageAccessManager.isGuestWorkspaceAvailable(root, workingDirectory)
+        ) workingDirectory else "/root"
+        args += listOf("-w", safeWorkingDirectory)
         args += command
         return ProcessBuilder(args).apply {
             environment().apply {

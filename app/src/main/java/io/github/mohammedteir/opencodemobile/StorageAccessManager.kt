@@ -5,10 +5,6 @@ import android.os.Environment
 import java.io.File
 import java.nio.file.Files
 
-/**
- * Optional bridge from Android's primary shared storage into the Debian rootfs.
- * Direct mounting is supported on Android 11+ with user-granted all-files access.
- */
 object StorageAccessManager {
     fun isSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
@@ -22,12 +18,40 @@ object StorageAccessManager {
             ?.takeIf { it.isDirectory && it.canRead() && it.canWrite() }
     }
 
-    /** Create safe, app-owned bind destinations and refuse symlink collisions. */
     fun prepareMountTargets(rootfs: File): List<String> {
         check(rootfs.isDirectory) { "Debian root filesystem is not installed." }
         ensureDirectory(rootfs, listOf("sdcard"))
         ensureDirectory(rootfs, listOf("storage", "emulated", "0"))
         return listOf("/sdcard", "/storage/emulated/0")
+    }
+
+    fun guestPathForDirectory(directory: File): String? {
+        val storageRoot = sharedStorageDirectory()?.canonicalFile ?: return null
+        val selected = runCatching { directory.canonicalFile }.getOrNull() ?: return null
+        if (!selected.isDirectory || !selected.canRead() || !selected.canWrite()) return null
+        val rootPath = storageRoot.path
+        val selectedPath = selected.path
+        if (selectedPath != rootPath && !selectedPath.startsWith(rootPath + File.separator)) return null
+        val relative = selected.relativeTo(storageRoot).path.replace(File.separatorChar, '/').trim('/')
+        return if (relative.isEmpty()) "/sdcard" else "/sdcard/$relative"
+    }
+
+    fun isGuestWorkspaceAvailable(rootfs: File, guestPath: String): Boolean {
+        if (guestPath == "/root") return File(rootfs, "root").isDirectory
+        if (sharedStorageDirectory() == null) return false
+        val normalized = guestPath.trimEnd('/').ifEmpty { "/" }
+        val relative = when {
+            normalized == "/sdcard" -> ""
+            normalized.startsWith("/sdcard/") -> normalized.removePrefix("/sdcard/")
+            normalized == "/storage/emulated/0" -> ""
+            normalized.startsWith("/storage/emulated/0/") -> normalized.removePrefix("/storage/emulated/0/")
+            else -> return false
+        }
+        val parts = relative.split('/').filter { it.isNotEmpty() }
+        if (parts.any { it == "." || it == ".." || '\u0000' in it }) return false
+        val base = sharedStorageDirectory()?.canonicalFile ?: return false
+        val target = runCatching { File(base, parts.joinToString(File.separator)).canonicalFile }.getOrNull() ?: return false
+        return target.isDirectory && target.canRead() && target.canWrite() && (target.path == base.path || target.path.startsWith(base.path + File.separator))
     }
 
     private fun ensureDirectory(rootfs: File, components: List<String>) {
