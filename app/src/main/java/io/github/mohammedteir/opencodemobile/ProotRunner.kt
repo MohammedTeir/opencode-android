@@ -1,6 +1,7 @@
 package io.github.mohammedteir.opencodemobile
 
 import android.content.Context
+import android.util.Log
 import java.io.File
 
 object ProotRunner {
@@ -13,6 +14,7 @@ object ProotRunner {
     ): Process {
         val libDir = File(context.applicationInfo.nativeLibraryDir)
         val root = File(context.filesDir, "rootfs")
+        AndroidDnsBootstrap.refresh(context, root) { message -> Log.i("OpenCodeDns", message) }
         val tmp = File(context.filesDir, "tmp").apply { mkdirs() }
         val args = mutableListOf(
             File(libDir, "libproot.so").absolutePath,

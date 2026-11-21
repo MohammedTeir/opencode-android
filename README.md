@@ -56,3 +56,10 @@ OpenCode Mobile supports two selectable workspace roots:
 - **Android shared storage:** when Android's All files access permission is granted, shared storage is mounted into PRoot at `/sdcard` and `/storage/emulated/0`. Select folders such as `/sdcard/Projects`, `/sdcard/Download`, or `/sdcard/Documents` to work on them directly.
 
 The workspace picker first asks which filesystem to browse, then lets the user navigate and select a directory. OpenCode's normal permission system still governs file and shell operations; a PRoot bind mount does not grant blanket OpenCode authorization. Changing the workspace requires stopping and restarting the server.
+
+
+## PRoot network and provider DNS
+
+Before each PRoot process starts, the app refreshes Debian's resolver configuration from Android's active network and resolves common API endpoints through Android's per-network resolver. The resulting addresses are written to a clearly marked, replaceable block in Debian's `/etc/hosts`; this is a fallback for environments where direct DNS queries from PRoot are blocked. It covers Gemini, OpenAI, Anthropic, OpenRouter, Groq, Mistral, Cohere, DeepSeek, xAI, and GitHub API endpoints.
+
+The fallback is refreshed at process launch and uses addresses returned by Android at runtime; provider IP addresses are not hardcoded. This is not a permanent DNS proxy: a long-running process can still encounter stale CDN records if an endpoint's addresses change during that process lifetime. Normal DNS remains configured through `/etc/resolv.conf`. HTTPS/TLS and provider authentication failures are separate from DNS resolution and are not bypassed by this fallback.
