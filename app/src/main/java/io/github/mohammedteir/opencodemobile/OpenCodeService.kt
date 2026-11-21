@@ -5,12 +5,15 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
+import android.graphics.drawable.Drawable
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -218,13 +221,43 @@ class OpenCodeService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this)
-        return builder.setSmallIcon(android.R.drawable.stat_sys_upload_done)
-            .setContentTitle("OpenCode server")
-            .setContentText("Available on this phone at 127.0.0.1:4096")
+        val appIcon = runCatching {
+            val drawable = packageManager.getApplicationIcon(packageName)
+            drawable.toNotificationBitmap()
+        }.getOrNull()
+        return builder
+            .setSmallIcon(R.drawable.ic_stat_opencode)
+            .setLargeIcon(appIcon)
+            .setContentTitle("OpenCode Mobile")
+            .setContentText("Your local coding server is running")
+            .setStyle(
+                Notification.BigTextStyle()
+                    .bigText("OpenCode is ready on this phone.\nLocal address: 127.0.0.1:4096")
+            )
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setPriority(Notification.PRIORITY_LOW)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
             .setContentIntent(open)
-            .addAction(Notification.Action.Builder(null, "Stop", stop).build())
+            .addAction(
+                Notification.Action.Builder(
+                    android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_media_pause),
+                    "Stop",
+                    stop
+                ).build()
+            )
             .build()
+    }
+
+    private fun Drawable.toNotificationBitmap(): Bitmap {
+        val width = intrinsicWidth.coerceAtLeast(1).coerceAtMost(192)
+        val height = intrinsicHeight.coerceAtLeast(1).coerceAtMost(192)
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            val canvas = Canvas(bitmap)
+            setBounds(0, 0, width, height)
+            draw(canvas)
+        }
     }
 
     override fun onDestroy() {
