@@ -2,9 +2,13 @@ package io.github.mohammedteir.opencodemobile
 
 import android.app.Activity
 import android.app.Application
+import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Environment
 import android.os.Process
+import android.provider.MediaStore
 import android.util.Log
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -32,10 +36,7 @@ object StartupDiagnostics {
     private const val LOG_FILE = "startup.log"
     private const val MAX_LOG_CHARS = 512 * 1024
     private val installed = AtomicBoolean(false)
-    @Volatile private var appContext: Application? = null
-
     fun install(application: Application) {
-        appContext = application
         if (!installed.compareAndSet(false, true)) return
 
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -102,9 +103,50 @@ object StartupDiagnostics {
             }
         )
         Log.e(TAG, "Uncaught exception on thread ${thread.name}", throwable)
+        writeDownloadCopy(application)
     }
 
-    private fun append(context: android.content.Context, text: String) {
+    /**
+     * Also writes a user-retrievable copy to Downloads on Android 10+.
+     * This is important when the app crashes on every launch and its share UI
+     * cannot be opened. No broad storage permission is required.
+     */
+    private fun writeDownloadCopy(context: Context) {
+        val report = buildString {
+            appendLine("OpenCode Android crash diagnostics")
+            appendLine("Package: ${context.packageName}")
+            appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
+            appendLine("Android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
+            appendLine()
+            val log = logFile(context)
+            if (log.isFile) append(log.readText()) else appendLine("Diagnostic log unavailable.")
+        }
+        val fileName = "OpenCode-Android-crash-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.txt"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                put(MediaStore.Downloads.MIME_TYPE, "text/plain")
+                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: error("Could not create diagnostic file in Downloads")
+            try {
+                context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(report) }
+                    ?: error("Could not open diagnostic file in Downloads")
+                val completed = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
+                context.contentResolver.update(uri, completed, null, null)
+            } catch (error: Throwable) {
+                context.contentResolver.delete(uri, null, null)
+                throw error
+            }
+        } else {
+            val directory = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir
+            java.io.File(directory, fileName).writeText(report)
+        }
+    }
+
+    private fun append(context: Context, text: String) {
         runCatching {
             val file = logFile(context)
             file.parentFile?.mkdirs()
