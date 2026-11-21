@@ -309,14 +309,14 @@ class SetupManager(private val context: Context) {
         for ((link, target) in hardlinks) {
             ensureNoSymlinkParents(stagePath, link.parent)
             ensureNoSymlinkParents(stagePath, target.parent)
-            require(Files.exists(target, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(target)) {
+            require(Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
                 "Missing or unsafe hard-link target: $target"
             }
             Files.createDirectories(link.parent)
 
-            // Debian archives can contain repeated path records where a destination
-            // was already extracted as a regular file or another link. Replace only
-            // non-directory entries inside this private staging tree before linking.
+            // Android app-private filesystems may reject link(2) with EACCES even
+            // when both paths are inside the app sandbox. A copied regular file
+            // preserves the rootfs contents without requiring inode-level links.
             if (Files.exists(link, LinkOption.NOFOLLOW_LINKS)) {
                 require(!Files.isDirectory(link, LinkOption.NOFOLLOW_LINKS)) {
                     "Cannot replace directory with Debian hard link: $link"
@@ -325,11 +325,15 @@ class SetupManager(private val context: Context) {
             }
 
             try {
-                Files.createLink(link, target)
+                Files.newInputStream(target).use { input ->
+                    Files.newOutputStream(link).use { output -> input.copyTo(output) }
+                }
+                val targetMode = Os.stat(target.toString()).st_mode and 4095
+                Os.chmod(link.toString(), targetMode)
             } catch (e: Exception) {
                 throw java.io.IOException(
-                    "Could not create Debian hard link '$link' -> '$target' " +
-                        "(${e.javaClass.simpleName}: ${e.message})",
+                    "Could not materialize Debian hard link '$link' from '$target' " +
+                        "as a regular file (${e.javaClass.simpleName}: ${e.message})",
                     e
                 )
             }
