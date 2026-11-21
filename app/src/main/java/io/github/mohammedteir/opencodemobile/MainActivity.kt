@@ -285,6 +285,7 @@ class MainActivity : ComponentActivity() {
                 false
             }
             if (ready) {
+                if (setup.deletePreviousBinary()) appendLog("Verified updated OpenCode server; previous binary removed.\n")
                 status.text = "Server ready · authenticated WebView"
                 showWebView()
             } else {

@@ -38,6 +38,8 @@ class SetupManager(private val context: Context) {
         return compareVersions(update.version, current) > 0
     }
 
+    fun deletePreviousBinary(): Boolean = File(rootfs, "usr/local/bin/opencode.previous").delete()
+
     suspend fun checkForUpdate(): OpenCodeUpdate = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(LATEST_RELEASE_URL)
