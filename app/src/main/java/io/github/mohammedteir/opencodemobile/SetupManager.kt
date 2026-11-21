@@ -292,7 +292,26 @@ class SetupManager(private val context: Context) {
                 "Missing or unsafe hard-link target: $target"
             }
             Files.createDirectories(link.parent)
-            Files.createLink(link, target)
+
+            // Debian archives can contain repeated path records where a destination
+            // was already extracted as a regular file or another link. Replace only
+            // non-directory entries inside this private staging tree before linking.
+            if (Files.exists(link, LinkOption.NOFOLLOW_LINKS)) {
+                require(!Files.isDirectory(link, LinkOption.NOFOLLOW_LINKS)) {
+                    "Cannot replace directory with Debian hard link: $link"
+                }
+                Files.delete(link)
+            }
+
+            try {
+                Files.createLink(link, target)
+            } catch (e: Exception) {
+                throw java.io.IOException(
+                    "Could not create Debian hard link '$link' -> '$target' " +
+                        "(${e.javaClass.simpleName}: ${e.message})",
+                    e
+                )
+            }
         }
         for ((link, target) in symlinks) {
             ensureNoSymlinkParents(stagePath, link.parent)
@@ -315,7 +334,8 @@ class SetupManager(private val context: Context) {
                 Os.symlink(target, link.toString())
             } catch (e: Exception) {
                 throw java.io.IOException(
-                    "Could not create Debian symlink '$link' -> '$target': ${e.message}",
+                    "Could not create Debian symlink '$link' -> '$target' " +
+                        "(${e.javaClass.simpleName}: ${e.message})",
                     e
                 )
             }
