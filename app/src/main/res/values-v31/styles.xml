@@ -1,0 +1,15 @@
+<resources>
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#B7B1B1</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">#101010</item>
+        <item name="android:navigationBarColor">#101010</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:windowSplashScreenBackground">#101010</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/opencode_splash_icon</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/opencode_wordmark_dark</item>
+        <item name="android:windowSplashScreenAnimationDuration">450</item>
+    </style>
+</resources>

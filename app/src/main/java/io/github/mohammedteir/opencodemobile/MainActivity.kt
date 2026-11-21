@@ -5,6 +5,9 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,6 +23,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -53,6 +57,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setup = SetupManager(this)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        window.statusBarColor = Color.parseColor("#101010")
+        window.navigationBarColor = Color.parseColor("#101010")
+        window.decorView.systemUiVisibility = 0
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATIONS)
         }
@@ -63,58 +70,217 @@ class MainActivity : ComponentActivity() {
     private fun buildSetupScreen() {
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(20), dp(18), dp(12))
-            setBackgroundColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(Color.parseColor("#101010"))
         }
-        val title = TextView(this).apply {
-            text = "OpenCode Mobile" + setup.installedVersion()?.let { " · V$it" }.orEmpty()
-            textSize = 22f
-            setTextColor(0xFF191919.toInt())
+
+        val pageScroll = ScrollView(this).apply {
+            clipToPadding = false
+            isFillViewport = true
+            setBackgroundColor(Color.parseColor("#101010"))
         }
-        status = TextView(this).apply {
-            text = "ARM64 only · OpenCode ${setup.installedVersion()?.let { "V$it" } ?: "not installed"}"
-            textSize = 15f
-            setPadding(0, dp(8), 0, dp(10))
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(22), dp(20), dp(28))
         }
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val wordmark = ImageView(this).apply {
+            setImageResource(R.drawable.opencode_wordmark_dark)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "OpenCode"
+        }
+        header.addView(wordmark, LinearLayout.LayoutParams(dp(142), dp(28)))
+        val headerSpacer = View(this)
+        header.addView(headerSpacer, LinearLayout.LayoutParams(0, 1, 1f))
+        val platformLabel = TextView(this).apply {
+            text = "ANDROID  •  ARM64"
+            textSize = 10f
+            letterSpacing = 0.08f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setTextColor(Color.parseColor("#A9A2A2"))
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            background = rounded("#211E1E", 30)
+        }
+        header.addView(platformLabel)
+        page.addView(header)
+
+        val hero = card("#1B1919", 22).apply {
+            setPadding(dp(20), dp(22), dp(20), dp(20))
+        }
+        hero.addView(text("LOCAL RUNTIME  /  PRIVATE WORKSPACE", 10f, "#B7B1B1", true).apply {
+            letterSpacing = 0.10f
+        })
+        hero.addView(text("OpenCode,\nready when you are.", 29f, "#F1ECEC", true).apply {
+            setLineSpacing(dp(1).toFloat(), 1f)
+            setPadding(0, dp(13), 0, dp(9))
+        })
+        hero.addView(text("Set up a lightweight Debian environment, install the OpenCode runtime, then connect to your local workspace.", 14f, "#A9A2A2", false).apply {
+            setLineSpacing(dp(4).toFloat(), 1f)
+        })
+        status = text("Preparing your environment…", 12f, "#D8D2D2", true).apply {
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded("#292525", 12)
+        }
+        hero.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(18)
+        })
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 1000
             visibility = View.GONE
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#B7B1B1"))
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#454040"))
         }
-        rootfsButton = button("1. Install Debian rootfs") { runInstallRootfs() }
-        smokeButton = button("2. Run M1 proot smoke test") { runSmokeTest() }
-        installButton = button("3. Install OpenCode V2.3.2 + packages") { runInstallOpenCode() }
-        serverButton = button("4. Start server and open WebView") { startServerAndOpen() }
-        updateButton = button("5. Check for OpenCode updates") { runCheckForUpdates() }
-        val warning = TextView(this).apply {
-            text = "This app uses a Debian ARM64 rootfs and OpenCode. It does not bind Android storage. OpenCode actions use conservative prompts. Keep the server notification visible while it runs."
-            textSize = 13f
-            setPadding(0, dp(8), 0, dp(12))
-        }
+        hero.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(4)).apply {
+            topMargin = dp(14)
+        })
+        page.addView(hero, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(26)
+        })
+
+        page.addView(sectionHeading("GET STARTED", "A one-time setup, in four steps."), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(26) })
+
+        rootfsButton = button("Install Debian environment") { runInstallRootfs() }
+        smokeButton = button("Run environment check", false) { runSmokeTest() }
+        installButton = button("Install OpenCode + packages") { runInstallOpenCode() }
+        serverButton = button("Start local workspace") { startServerAndOpen() }
+
+        addStepCard(page, "01", "Debian environment", "Download and prepare the ARM64 Linux root filesystem.", rootfsButton)
+        addStepCard(page, "02", "Runtime check", "Verify that PRoot can execute inside the new environment.", smokeButton)
+        addStepCard(page, "03", "OpenCode runtime", "Install the pinned OpenCode version and required packages.", installButton)
+        addStepCard(page, "04", "Launch workspace", "Start the authenticated local server and open its interface.", serverButton)
+
+        val toolsCard = card("#1B1919", 18)
+        toolsCard.addView(text("MAINTENANCE", 10f, "#B7B1B1", true).apply { letterSpacing = 0.10f })
+        toolsCard.addView(text("Keep your runtime current", 17f, "#F1ECEC", true).apply {
+            setPadding(0, dp(7), 0, dp(4))
+        })
+        toolsCard.addView(text("Check the stable release channel configured for this app.", 13f, "#A9A2A2", false))
+        updateButton = button("Check for updates", false) { runCheckForUpdates() }
+        toolsCard.addView(updateButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+            topMargin = dp(14)
+        })
+        val batteryButton = button("Battery optimization settings", false) { requestBatteryExemption() }
+        toolsCard.addView(batteryButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply {
+            topMargin = dp(8)
+        })
+        page.addView(toolsCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(14)
+        })
+
+        val privacyNote = text("Your workspace is served locally on this device at 127.0.0.1. Android storage is not automatically mounted into the Linux environment. Keep the foreground service notification visible while the server runs.", 12f, "#827B7B", false)
+        privacyNote.setPadding(dp(2), dp(18), dp(2), dp(10))
+        page.addView(privacyNote)
+
+        page.addView(text("ACTIVITY", 10f, "#B7B1B1", true).apply {
+            letterSpacing = 0.10f
+            setPadding(dp(2), dp(12), 0, dp(9))
+        })
         logs = TextView(this).apply {
-            textSize = 12f
-            typeface = android.graphics.Typeface.MONOSPACE
-            setTextColor(0xFF222222.toInt())
-            setPadding(dp(10), dp(10), dp(10), dp(10))
-            setBackgroundColor(0xFFF3F3F6.toInt())
+            textSize = 11f
+            typeface = Typeface.create("monospace", Typeface.NORMAL)
+            setTextColor(Color.parseColor("#C7C0C0"))
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            setTextIsSelectable(true)
             text = "Setup output will appear here.\n"
+            background = rounded("#171515", 14, "#302B2B")
         }
-        val scroll = ScrollView(this).apply { addView(logs) }
-        content.addView(title)
-        content.addView(status)
-        content.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)))
-        listOf(rootfsButton, smokeButton, installButton, serverButton, updateButton).forEach {
-            content.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(5) })
+        val logScroll = ScrollView(this).apply {
+            isFillViewport = false
+            addView(logs)
+            background = rounded("#171515", 14, "#302B2B")
         }
-        val batteryButton = button("5. Battery optimization settings") { requestBatteryExemption() }
-        content.addView(batteryButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(4) })
-        content.addView(warning)
-        content.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        page.addView(logScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(156)))
+
+        pageScroll.addView(page)
+        content.addView(pageScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(content)
-        appendLog("Ready. Install the Debian rootfs, then run M1 before continuing.\n")
+        appendLog("Ready. Install the Debian environment, then run the runtime check.\n")
     }
 
-    private fun button(label: String, action: () -> Unit) = Button(this).apply {
+    private fun sectionHeading(kicker: String, subtitle: String): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(text(kicker, 10f, "#B7B1B1", true).apply { letterSpacing = 0.10f })
+            addView(text(subtitle, 14f, "#8F8888", false).apply { setPadding(0, dp(5), 0, 0) })
+        }
+    }
+
+    private fun addStepCard(parent: LinearLayout, number: String, title: String, description: String, action: Button) {
+        val container = card("#1B1919", 18).apply {
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        val index = TextView(this).apply {
+            text = number
+            textSize = 11f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            gravity = android.view.Gravity.CENTER
+            setTextColor(Color.parseColor("#E7E1E1"))
+            background = rounded("#393333", 12)
+        }
+        header.addView(index, LinearLayout.LayoutParams(dp(38), dp(38)))
+        val copy = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), 0, 0, 0)
+            addView(text(title, 15f, "#F1ECEC", true))
+            addView(text(description, 12f, "#968F8F", false).apply {
+                setPadding(0, dp(4), 0, 0)
+                setLineSpacing(dp(2).toFloat(), 1f)
+            })
+        }
+        header.addView(copy, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        container.addView(header)
+        container.addView(action, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+            topMargin = dp(15)
+        })
+        parent.addView(container, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(10)
+        })
+    }
+
+    private fun text(value: String, size: Float, color: String, medium: Boolean): TextView {
+        return TextView(this).apply {
+            text = value
+            textSize = size
+            setTextColor(Color.parseColor(color))
+            typeface = Typeface.create(if (medium) "sans-serif-medium" else "sans-serif", Typeface.NORMAL)
+        }
+    }
+
+    private fun card(color: String, radius: Int, stroke: String? = null): LinearLayout {
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(color, radius, stroke)
+        }
+    }
+
+    private fun rounded(color: String, radius: Int, stroke: String? = null): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(Color.parseColor(color))
+            cornerRadius = dp(radius).toFloat()
+            if (stroke != null) setStroke(dp(1), Color.parseColor(stroke))
+        }
+    }
+
+    private fun button(label: String, primary: Boolean = true, action: () -> Unit) = Button(this).apply {
         text = label
+        isAllCaps = false
+        textSize = 14f
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        minHeight = dp(48)
+        minimumHeight = dp(48)
+        setPadding(dp(14), 0, dp(14), 0)
+        setTextColor(Color.parseColor(if (primary) "#211E1E" else "#E7E1E1"))
+        background = rounded(if (primary) "#D8D2D2" else "#302B2B", 14, if (primary) null else "#494242")
+        stateListAnimator = null
         setOnClickListener { action() }
     }
 
@@ -126,18 +292,19 @@ class MainActivity : ComponentActivity() {
         updateButton.isEnabled = setup.isReady()
         if (setup.isReady()) status.text = "OpenCode V${setup.installedVersion()} installed · ready to start"
         else if (setup.hasRootfs() && setup.hasOpenCodeBinary()) status.text = "Existing OpenCode install · version metadata missing"
-        else if (setup.hasRootfs()) status.text = "Debian installed · run the M1 smoke test"
+        else if (setup.hasRootfs()) status.text = "Debian installed · run the runtime check"
+        else status.text = "Ready to prepare your local environment"
     }
 
     private fun runInstallRootfs() {
-        setBusy(true, "Installing Debian rootfs…")
+        setBusy(true, "Installing Debian environment…")
         lifecycleScope.launch {
             try {
                 setup.installRootfs(::appendLog) { done, total -> showProgress(done, total, "Debian") }
-                appendLog("M1 prerequisite ready. Press the smoke-test button.\n")
+                appendLog("Debian environment ready. Run the runtime check next.\n")
             } catch (t: Throwable) {
                 appendLog("Rootfs setup failed: ${t.message}\n")
-                status.text = "Setup failed — check output and retry"
+                status.text = "Setup failed — check activity and retry"
             } finally {
                 setBusy(false)
                 refreshButtons()
@@ -146,7 +313,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun runSmokeTest() {
-        setBusy(true, "Running M1 proot test…")
+        setBusy(true, "Checking the Linux runtime…")
         lifecycleScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
@@ -156,11 +323,11 @@ class MainActivity : ComponentActivity() {
                     check(code == 0 && output.lineSequence().any { it == "hi" }) { "Expected `hi`, got exit $code: $output" }
                     output
                 }
-                appendLog("M1 PASS: proot printed $result (verify this on the target phone).\n")
-                status.text = "M1 smoke test passed · install OpenCode next"
+                appendLog("Runtime check passed: PRoot printed $result.\n")
+                status.text = "Runtime check passed · install OpenCode next"
             } catch (t: Throwable) {
-                appendLog("M1 FAILED: ${t.message}\n")
-                status.text = "M1 failed — inspect native library packaging and PRoot log"
+                appendLog("Runtime check failed: ${t.message}\n")
+                status.text = "Runtime check failed — inspect activity"
             } finally {
                 setBusy(false)
                 refreshButtons()
@@ -173,10 +340,10 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 setup.installOpenCodeAndPackages(::appendLog) { done, total -> showProgress(done, total, "OpenCode") }
-                appendLog("OpenCode V${setup.installedVersion()} install complete. Next start the local server.\n")
+                appendLog("OpenCode V${setup.installedVersion()} installed. Start the local workspace when ready.\n")
             } catch (t: Throwable) {
                 appendLog("OpenCode setup failed: ${t.message}\n")
-                status.text = "Setup failed — check output and retry"
+                status.text = "Setup failed — check activity and retry"
             } finally {
                 setBusy(false)
                 refreshButtons()
@@ -189,7 +356,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Stop the OpenCode server before checking for updates", Toast.LENGTH_LONG).show()
             return
         }
-        setBusy(true, "Checking GitHub for OpenCode updates…")
+        setBusy(true, "Checking for stable OpenCode updates…")
         lifecycleScope.launch {
             try {
                 val update = withContext(Dispatchers.IO) { setup.checkForUpdate() }
@@ -286,7 +453,7 @@ class MainActivity : ComponentActivity() {
             }
             if (ready) {
                 if (setup.deletePreviousBinary()) appendLog("Verified updated OpenCode server; previous binary removed.\n")
-                status.text = "Server ready · authenticated WebView"
+                status.text = "Server ready · authenticated workspace"
                 showWebView()
             } else {
                 status.text = "Server did not become ready in 60 seconds"
@@ -297,6 +464,26 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showWebView() {
+        content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#101010"))
+        }
+        val toolbar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = rounded("#171515", 0)
+        }
+        val back = button("Back", false) { showSetupAgain() }
+        toolbar.addView(back, LinearLayout.LayoutParams(dp(76), dp(44)))
+        val pageTitle = text("OpenCode workspace", 14f, "#F1ECEC", true)
+        toolbar.addView(pageTitle, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+            leftMargin = dp(12)
+        })
+        val reload = button("Reload", false) { webView?.reload() }
+        toolbar.addView(reload, LinearLayout.LayoutParams(dp(82), dp(44)))
+        content.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60)))
+
         val web = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -331,14 +518,8 @@ class MainActivity : ComponentActivity() {
             }
         }
         webView = web
-        content.removeAllViews()
-        val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val back = Button(this).apply { text = "Back"; setOnClickListener { showSetupAgain() } }
-        val reload = Button(this).apply { text = "Reload"; setOnClickListener { web.reload() } }
-        bar.addView(back, LinearLayout.LayoutParams(0, dp(48), 1f))
-        bar.addView(reload, LinearLayout.LayoutParams(0, dp(48), 1f))
-        content.addView(bar)
         content.addView(web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(content)
         web.loadUrl(SERVER_URL)
     }
 
