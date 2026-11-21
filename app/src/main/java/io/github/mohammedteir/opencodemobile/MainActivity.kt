@@ -622,9 +622,9 @@ class MainActivity : ComponentActivity() {
             try {
                 withContext(Dispatchers.IO) { setup.repairRequiredPackages(::appendLog) }
                 status.text = "Debian tools repaired · run diagnostics to verify"
-                appendLog("Package-only repair completed. Run Runtime diagnostics to verify the installed components.\\n")
+                appendLog("Package-only repair completed. Run Runtime diagnostics to verify the installed components.\n")
             } catch (t: Throwable) {
-                appendLog("Debian package repair failed: ${t.message}\\n")
+                appendLog("Debian package repair failed: ${t.message}\n")
                 status.text = "Package repair failed · inspect activity"
             } finally {
                 setBusy(false)
