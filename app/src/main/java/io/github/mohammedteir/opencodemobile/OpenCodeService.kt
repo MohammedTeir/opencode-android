@@ -25,6 +25,7 @@ class OpenCodeService : Service() {
     @Volatile private var stopping = false
     private var wakeLock: PowerManager.WakeLock? = null
     private val starting = AtomicBoolean(false)
+    @Volatile private var sharedStorageEnabledAtStart = false
 
     override fun onCreate() {
         super.onCreate()
@@ -41,6 +42,13 @@ class OpenCodeService : Service() {
             startForeground(NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(NOTIFICATION_ID, notification())
+        }
+        // Snapshot only on first start. Repeated launch intents must not hide permission changes.
+        if (!isRunning) {
+            sharedStorageEnabledAtStart = StorageAccessManager.sharedStorageDirectory() != null
+            getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit()
+                .putBoolean(PREF_SHARED_STORAGE_MOUNTED, sharedStorageEnabledAtStart)
+                .apply()
         }
         intent?.getStringExtra(EXTRA_WORKING_DIRECTORY)?.let { requested ->
             val rootfs = File(filesDir, "rootfs")
@@ -92,7 +100,8 @@ class OpenCodeService : Service() {
                             this,
                             listOf("/usr/local/bin/opencode", "serve", "--port", "4096", "--hostname", "127.0.0.1"),
                             mapOf("OPENCODE_PASSWORD" to password),
-                            workingDirectory = workspace
+                            workingDirectory = workspace,
+                            includeSharedStorage = sharedStorageEnabledAtStart
                         )
                         appendLog("OpenCode workspace directory: $workspace\n")
                         process = child
@@ -231,6 +240,7 @@ class OpenCodeService : Service() {
         const val EXTRA_WORKING_DIRECTORY = "io.github.mohammedteir.opencodemobile.WORKING_DIRECTORY"
         const val PREFERENCES = "opencode_preferences"
         const val PREF_WORKSPACE_DIRECTORY = "workspace_directory"
+        const val PREF_SHARED_STORAGE_MOUNTED = "server_shared_storage_mounted"
         @Volatile var isRunning: Boolean = false
         private const val TAG = "OpenCodeMobile"
         private const val CHANNEL_ID = "opencode_server"

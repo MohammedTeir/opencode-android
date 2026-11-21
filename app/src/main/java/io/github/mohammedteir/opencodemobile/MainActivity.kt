@@ -746,12 +746,24 @@ class MainActivity : ComponentActivity() {
             return
         }
         storageButton.isEnabled = true
-        if (StorageAccessManager.sharedStorageDirectory() != null) {
+        val storageEnabled = StorageAccessManager.sharedStorageDirectory() != null
+        if (storageEnabled) {
             storageStatus.text = "Enabled · Debian paths: /sdcard and /storage/emulated/0"
             storageButton.text = "Manage access"
         } else {
             storageStatus.text = "Disabled · Debian cannot access Android shared storage."
             storageButton.text = "Grant access"
+        }
+        val preferences = getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE)
+        if (OpenCodeService.isRunning &&
+            preferences.contains(OpenCodeService.PREF_SHARED_STORAGE_MOUNTED) &&
+            preferences.getBoolean(OpenCodeService.PREF_SHARED_STORAGE_MOUNTED, false) != storageEnabled
+        ) {
+            storageStatus.text = storageStatus.text.toString() +
+                "\n\nAccess changed while OpenCode was running. Stop the server from its notification, then launch it again to apply the new mount configuration."
+            storageStatus.setTextColor(Color.parseColor("#E3B0A8"))
+        } else {
+            storageStatus.setTextColor(Color.parseColor("#A9A2A2"))
         }
         refreshWorkspaceLabel()
     }
