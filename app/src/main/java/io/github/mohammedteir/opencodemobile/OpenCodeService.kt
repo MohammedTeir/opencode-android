@@ -94,7 +94,7 @@ class OpenCodeService : Service() {
                             StorageAccessManager.isGuestWorkspaceAvailable(rootfs, configuredWorkspace)
                         ) configuredWorkspace else "/root/projects"
                         if (workspace != configuredWorkspace) {
-                            appendLog("Saved workspace directory is unavailable; starting in /root.\n")
+                            appendLog("Saved workspace directory is unavailable; starting in /root/projects.\n")
                         }
                         val child = ProotRunner.start(
                             this,
