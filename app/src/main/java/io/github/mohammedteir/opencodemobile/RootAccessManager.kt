@@ -166,13 +166,13 @@ object RootAccessManager {
         val script = """
             set -eu
             probe=$probePath
-            mkdir "$probe"
+            mkdir "${'$'}probe"
             trap "rm -rf $probePath" EXIT
             printf 'opencode-root-hardlink-probe' > $source
             ln $source $link
             source_inode=$(stat -c %i $source)
             link_inode=$(stat -c %i $link)
-            if [ "$source_inode" != "$link_inode" ]; then
+            if [ "${'$'}source_inode" != "${'$'}link_inode" ]; then
                 echo 'Hard-link verification failed: inode mismatch.'
                 exit 20
             fi
