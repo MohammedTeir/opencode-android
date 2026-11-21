@@ -703,9 +703,10 @@ class MainActivity : ComponentActivity() {
         val listing = runCatching { folder.listFiles() }
         val children = listing.getOrNull()
             ?.filter { child ->
-                // Navigation only requires read access. Writability is checked when
-                // the user selects a workspace, not while browsing its parent.
-                child.isDirectory && child.canRead() &&
+                // Do not use canRead() as a discovery filter: Android's emulated
+                // storage layer can report false negatives for directory metadata.
+                // Actual read/write access is validated when a folder is selected.
+                child.isDirectory &&
                     !(folder.name == "Android" && child.name in setOf("data", "obb"))
             }
             ?.sortedBy { it.name.lowercase() }
@@ -713,15 +714,16 @@ class MainActivity : ComponentActivity() {
         val pickerMessage = buildString {
             append(folder.path)
             when {
-                listing.isFailure -> append("\\n\\nUnable to read this directory: ${listing.exceptionOrNull()?.message ?: "permission denied"}")
-                listing.getOrNull() == null -> append("\\n\\nAndroid did not return a folder listing. Check shared-storage permission and try again.")
-                children.isEmpty() -> append("\\n\\nNo accessible subfolders here. You can use this folder as your workspace or go back.")
+                listing.isFailure -> append("\n\nCould not list this folder: ${listing.exceptionOrNull()?.message ?: "unknown error"}")
+                listing.getOrNull() == null -> append("\n\nAndroid returned no folder listing. Check All files access, then reload this picker.")
+                children.isEmpty() -> append("\n\nNo subfolders were found here. You can select this folder, or go back to its parent.")
+                else -> append("\n\nSelect a folder below, or use the current folder.")
             }
         }
         val dialog = AlertDialog.Builder(this)
-            .setTitle("Choose workspace folder")
+            .setTitle("Choose project folder")
             .setMessage(pickerMessage)
-            .setItems(children.map { it.name + "/" }.toTypedArray()) { _, which ->
+            .setItems(children.map { "📁  ${it.name}" }.toTypedArray()) { _, which ->
                 if (which in children.indices) showWorkspaceDirectoryPicker(children[which], root)
             }
             .setPositiveButton("Use this folder") { _, _ ->
