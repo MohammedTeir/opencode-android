@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var setupButton: Button
     private lateinit var smokeButton: Button
     private lateinit var updateButton: Button
+    private lateinit var repairPackagesButton: Button
     private lateinit var rootAccessButton: Button
     private lateinit var rootDiagnosticsButton: Button
     private lateinit var rootHardLinkButton: Button
@@ -246,6 +247,10 @@ class MainActivity : ComponentActivity() {
             marginStart = dp(6)
         })
         page.addView(maintenance)
+        repairPackagesButton = compactButton("Repair Linux tools", false) { confirmPackageRepair() }
+        page.addView(repairPackagesButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
+            topMargin = dp(6)
+        })
 
         val storageCard = card("#1B1919", 16, "#302B2B").apply {
             setPadding(dp(15), dp(14), dp(15), dp(14))
@@ -487,6 +492,7 @@ class MainActivity : ComponentActivity() {
         smokeButton.isEnabled = setup.hasRootfs()
         serverButton.isEnabled = setup.isReady()
         updateButton.isEnabled = setup.isReady()
+        repairPackagesButton.isEnabled = setup.hasRootfs() && !OpenCodeService.isRunning
         if (setup.isReady()) status.text = "OpenCode V${setup.installedVersion()} installed · ready to start"
         else if (setup.hasRootfs() && setup.hasOpenCodeBinary()) status.text = "Existing OpenCode install · version metadata missing"
         else if (setup.hasRootfs()) status.text = "Debian installed · run the runtime check"
@@ -581,6 +587,46 @@ class MainActivity : ComponentActivity() {
             } catch (t: Throwable) {
                 appendLog("Runtime check failed: ${t.message}\n")
                 status.text = "Runtime check failed — inspect activity"
+            } finally {
+                setBusy(false)
+                refreshButtons()
+            }
+        }
+    }
+
+    private fun confirmPackageRepair() {
+        if (!setup.hasRootfs()) {
+            Toast.makeText(this, "Install Debian before repairing Linux tools", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (OpenCodeService.isRunning) {
+            Toast.makeText(this, "Stop the OpenCode server before repairing Linux tools", Toast.LENGTH_LONG).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Repair Debian command-line tools?")
+            .setMessage(
+                "This refreshes Debian package indexes and reinstalls only Git, ripgrep, curl, CA certificates, procps, OpenSSH client, and unzip. It does not reinstall Debian, replace OpenCode, or overwrite your configuration or projects. An internet connection is required."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Repair") { _, _ -> runPackageRepair() }
+            .show()
+    }
+
+    private fun runPackageRepair() {
+        if (OpenCodeService.isRunning) {
+            Toast.makeText(this, "Stop the OpenCode server before repairing Linux tools", Toast.LENGTH_LONG).show()
+            return
+        }
+        setBusy(true, "Repairing Debian command-line tools…")
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { setup.repairRequiredPackages(::appendLog) }
+                status.text = "Debian tools repaired · run diagnostics to verify"
+                appendLog("Package-only repair completed. Run Runtime diagnostics to verify the installed components.\n")
+            } catch (t: Throwable) {
+                appendLog("Debian package repair failed: ${t.message}\n")
+                status.text = "Package repair failed · inspect activity"
             } finally {
                 setBusy(false)
                 refreshButtons()
@@ -1073,6 +1119,7 @@ class MainActivity : ComponentActivity() {
         smokeButton.isEnabled = !busy && setup.hasRootfs()
         serverButton.isEnabled = !busy && setup.isReady()
         updateButton.isEnabled = !busy && setup.isReady()
+        repairPackagesButton.isEnabled = !busy && setup.hasRootfs() && !OpenCodeService.isRunning
         rootAccessButton.isEnabled = !busy
         rootDiagnosticsButton.isEnabled = !busy
         rootHardLinkButton.isEnabled = !busy

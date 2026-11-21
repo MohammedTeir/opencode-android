@@ -126,6 +126,51 @@ class SetupManager(private val context: Context) {
     }
 
     /**
+     * Repairs only the baseline Debian command-line packages. It never reinstalls
+     * Debian, replaces OpenCode, or modifies OpenCode configuration and projects.
+     */
+    suspend fun repairRequiredPackages(log: (String) -> Unit) = withContext(Dispatchers.IO) {
+        check(hasRootfs()) { "Debian rootfs is not installed; package repair cannot run." }
+        check(!OpenCodeService.isRunning) { "Stop the OpenCode server before repairing Debian packages." }
+        check(File(rootfs, "usr/bin/apt-get").isFile && File(rootfs, "bin/bash").isFile) {
+            "Debian package manager or shell is missing. Package-only repair is unsafe; inspect the Debian rootfs instead."
+        }
+
+        postExtractFixes(rootfs, log)
+        File(rootfs, "etc/apt/apt.conf.d/01-android-proot").apply {
+            parentFile?.mkdirs()
+            writeText("APT::Sandbox::User \"root\";\n")
+        }
+        val script = """
+            set -eu
+            export DEBIAN_FRONTEND=noninteractive
+            echo "Checking Debian mirror DNS from inside PRoot…"
+            getent ahosts deb.debian.org >/dev/null || {
+                echo "DNS preflight failed for deb.debian.org. Check Android connectivity, VPN, or Private DNS, then retry." >&2
+                exit 42
+            }
+            echo "Refreshing Debian package indexes…"
+            apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=25 update || {
+                echo "APT index refresh failed; no package changes were attempted." >&2
+                exit 43
+            }
+            echo "Repairing only the baseline command-line packages…"
+            apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=25 install -y --no-install-recommends git ripgrep curl ca-certificates procps openssh-client unzip
+        """.trimIndent()
+        val process = ProotRunner.start(context, listOf("/bin/bash", "-lc", script))
+        process.inputStream.bufferedReader().useLines { lines -> lines.forEach(log) }
+        val exitCode = process.waitFor()
+        check(exitCode == 0) {
+            when (exitCode) {
+                42 -> "Debian DNS preflight failed. Check the active Android network and retry."
+                43 -> "APT could not refresh package indexes. No package installation was attempted."
+                else -> "Debian package repair failed (exit code $exitCode)."
+            }
+        }
+        log("Baseline Debian packages are installed. Debian rootfs, OpenCode binary, configuration, and project files were not replaced.")
+    }
+
+    /**
      * Runs the complete first-run installation in one resumable operation.
      * Completed stages are reused; recoverable files are retained after failures.
      */
