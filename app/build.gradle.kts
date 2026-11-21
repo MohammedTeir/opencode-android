@@ -10,12 +10,12 @@ val releaseKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").o
 
 android {
     namespace = "io.github.mohammedteir.opencodemobile"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "io.github.mohammedteir.opencodemobile"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "0.2.0-v2.3.2"
         ndk { abiFilters += "arm64-v8a" }
@@ -49,6 +49,7 @@ android {
 
 dependencies {
     implementation("androidx.activity:activity-ktx:1.8.2")
+    implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("org.apache.commons:commons-compress:1.26.1")
     implementation("org.tukaani:xz:1.9")
