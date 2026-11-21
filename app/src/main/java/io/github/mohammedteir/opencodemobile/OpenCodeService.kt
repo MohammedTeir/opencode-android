@@ -44,10 +44,13 @@ class OpenCodeService : Service() {
         }
         intent?.getStringExtra(EXTRA_WORKING_DIRECTORY)?.let { requested ->
             val rootfs = File(filesDir, "rootfs")
-            val selected = if (StorageAccessManager.isGuestWorkspaceAvailable(rootfs, requested)) requested else "/root"
-            getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit()
-                .putString(PREF_WORKSPACE_DIRECTORY, selected)
-                .apply()
+            if (StorageAccessManager.isGuestWorkspaceAvailable(rootfs, requested)) {
+                getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit()
+                    .putString(PREF_WORKSPACE_DIRECTORY, requested)
+                    .apply()
+            } else {
+                appendLog("Requested workspace is unavailable; retaining the saved selection and using /root for this launch.\n")
+            }
         }
         val installedVersion = runCatching { File(filesDir, "setup_ready").readText().trim() }.getOrNull()
         val binaryReady = File(filesDir, "rootfs/usr/local/bin/opencode").canExecute()
