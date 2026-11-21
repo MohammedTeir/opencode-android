@@ -2,6 +2,7 @@ package io.github.mohammedteir.opencodemobile
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.os.Build
 import android.net.Network
 import java.io.File
 import java.net.InetAddress
@@ -37,8 +38,8 @@ object AndroidDnsBootstrap {
         return Snapshot(
             networkAvailable = network != null,
             dnsServers = dnsServers,
-            privateDnsActive = properties?.isPrivateDnsActive == true,
-            privateDnsServerName = properties?.privateDnsServerName
+            privateDnsActive = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && properties?.isPrivateDnsActive == true,
+            privateDnsServerName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) properties?.privateDnsServerName else null
         )
     }
 
