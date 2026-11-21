@@ -61,6 +61,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var rootHardLinkSwitch: CheckBox
     private lateinit var storageStatus: TextView
     private lateinit var storageButton: Button
+    private lateinit var workspacePathLabel: TextView
+    private lateinit var workspaceChooseButton: Button
+    private lateinit var storageTestButton: Button
     private lateinit var serverButton: Button
     private lateinit var activityPanel: ScrollView
     private lateinit var activityToggle: TextView
@@ -248,6 +251,16 @@ class MainActivity : ComponentActivity() {
         storageCard.addView(storageStatus)
         storageButton = compactButton("Grant access", false) { requestSharedStorageAccess() }
         storageCard.addView(storageButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
+        workspacePathLabel = text("Workspace directory: /root", 11f, "#D8D2D2", true).apply {
+            setPadding(0, dp(12), 0, dp(7))
+        }
+        storageCard.addView(workspacePathLabel)
+        workspaceChooseButton = compactButton("Choose project folder", false) { chooseWorkspaceDirectory() }
+        storageCard.addView(workspaceChooseButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
+            bottomMargin = dp(6)
+        })
+        storageTestButton = compactButton("Test shared storage", false) { runSharedStorageTest() }
+        storageCard.addView(storageTestButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
         page.addView(storageCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(8)
         })
@@ -611,6 +624,115 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun refreshWorkspaceLabel() {
+        val rootfs = File(filesDir, "rootfs")
+        val stored = getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE)
+            .getString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, "/root") ?: "/root"
+        val selected = if (StorageAccessManager.isGuestWorkspaceAvailable(rootfs, stored)) stored else "/root"
+        workspacePathLabel.text = "Workspace directory: $selected"
+        val enabled = StorageAccessManager.sharedStorageDirectory() != null
+        workspaceChooseButton.isEnabled = enabled && !OpenCodeService.isRunning
+        storageTestButton.isEnabled = enabled
+    }
+
+    private fun chooseWorkspaceDirectory() {
+        if (OpenCodeService.isRunning) {
+            Toast.makeText(this, "Stop OpenCode before changing its workspace directory", Toast.LENGTH_LONG).show()
+            return
+        }
+        val root = StorageAccessManager.sharedStorageDirectory()
+        if (root == null) {
+            Toast.makeText(this, "Grant shared-storage access first", Toast.LENGTH_LONG).show()
+            return
+        }
+        showWorkspaceDirectoryPicker(root, root)
+    }
+
+    private fun showWorkspaceDirectoryPicker(current: File, storageRoot: File) {
+        val root = runCatching { storageRoot.canonicalFile }.getOrNull() ?: return
+        val folder = runCatching { current.canonicalFile }.getOrNull() ?: return
+        if (folder.path != root.path && !folder.path.startsWith(root.path + File.separator)) return
+        val children = folder.listFiles()
+            ?.filter { child ->
+                child.isDirectory && child.canRead() &&
+                    !(folder.name == "Android" && child.name in setOf("data", "obb"))
+            }
+            ?.sortedBy { it.name.lowercase() }
+            .orEmpty()
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Choose workspace folder")
+            .setMessage(folder.path)
+            .setItems(children.map { it.name + "/" }.toTypedArray()) { _, which ->
+                if (which in children.indices) showWorkspaceDirectoryPicker(children[which], root)
+            }
+            .setPositiveButton("Use this folder") { _, _ ->
+                val guestPath = StorageAccessManager.guestPathForDirectory(folder)
+                if (guestPath == null) {
+                    Toast.makeText(this, "That folder is no longer accessible", Toast.LENGTH_LONG).show()
+                } else {
+                    getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE).edit()
+                        .putString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, guestPath)
+                        .apply()
+                    refreshWorkspaceLabel()
+                    appendLog("Workspace directory selected: $guestPath\n")
+                    Toast.makeText(this, "Workspace directory saved", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+        if (folder.path != root.path) {
+            dialog.setNeutralButton("Up") { _, _ ->
+                folder.parentFile?.let { showWorkspaceDirectoryPicker(it, root) }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun runSharedStorageTest() {
+        if (StorageAccessManager.sharedStorageDirectory() == null) {
+            Toast.makeText(this, "Shared storage access is not enabled", Toast.LENGTH_LONG).show()
+            refreshStorageAccessUi()
+            return
+        }
+        storageTestButton.isEnabled = false
+        storageTestButton.text = "Testing…"
+        lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    val token = java.util.UUID.randomUUID().toString().replace("-", "")
+                    val script = "set -eu; mkdir -p /sdcard/Download; f=/sdcard/Download/.opencode-storage-test-$token; " +
+                        "trap 'rm -f \"\$f\"' EXIT; printf 'opencode-storage-test' > \"\$f\"; " +
+                        "cmp \"\$f\" /storage/emulated/0/Download/.opencode-storage-test-$token; " +
+                        "echo 'Both shared-storage paths resolve to the same writable directory.'"
+                    val process = ProotRunner.start(this@MainActivity, listOf("/bin/sh", "-c", script))
+                    if (!process.waitFor(20, TimeUnit.SECONDS)) {
+                        process.destroyForcibly()
+                        throw IllegalStateException("Storage test timed out")
+                    }
+                    val output = process.inputStream.bufferedReader().readText().trim()
+                    check(process.exitValue() == 0) { output.ifBlank { "Shared-storage test failed." } }
+                    output
+                }
+                appendLog("Shared-storage test passed: $result\n")
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Shared storage works")
+                    .setMessage(result + "\n\nThe temporary test file was removed.")
+                    .setPositiveButton("OK", null)
+                    .show()
+            } catch (error: Throwable) {
+                val message = error.message ?: "Unknown storage test failure"
+                appendLog("Shared-storage test failed: $message\n")
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Shared-storage test failed")
+                    .setMessage(message)
+                    .setPositiveButton("OK", null)
+                    .show()
+            } finally {
+                storageTestButton.text = "Test shared storage"
+                refreshStorageAccessUi()
+            }
+        }
+    }
+
     private fun refreshStorageAccessUi() {
         if (!StorageAccessManager.isSupported()) {
             storageStatus.text = "Direct shared-storage mounting requires Android 11 or newer."
@@ -626,6 +748,7 @@ class MainActivity : ComponentActivity() {
             storageStatus.text = "Disabled · Debian cannot access Android shared storage."
             storageButton.text = "Grant access"
         }
+        refreshWorkspaceLabel()
     }
 
     private fun requestSharedStorageAccess() {
@@ -676,7 +799,12 @@ class MainActivity : ComponentActivity() {
     private fun startServerAndOpen() {
         status.text = "Starting OpenCode server…"
         appendLog("Starting OpenCode on 127.0.0.1:4096…\n")
+        val selectedWorkspace = getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE)
+            .getString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, "/root") ?: "/root"
+        val rootfs = File(filesDir, "rootfs")
+        val safeWorkspace = if (StorageAccessManager.isGuestWorkspaceAvailable(rootfs, selectedWorkspace)) selectedWorkspace else "/root"
         val service = Intent(this, OpenCodeService::class.java)
+            .putExtra(OpenCodeService.EXTRA_WORKING_DIRECTORY, safeWorkspace)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service)
         lifecycleScope.launch {
             val ready = withContext(Dispatchers.IO) {
