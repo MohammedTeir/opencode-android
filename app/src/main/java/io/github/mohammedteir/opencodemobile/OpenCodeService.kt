@@ -227,13 +227,8 @@ class OpenCodeService : Service() {
         }.getOrNull()
         return builder
             .setSmallIcon(R.drawable.ic_stat_opencode)
-            .setLargeIcon(appIcon)
-            .setContentTitle("OpenCode Mobile")
-            .setContentText("Your workspace is ready")
-            .setStyle(
-                Notification.BigTextStyle()
-                    .bigText("OpenCode is running in the background. Return to the app to continue working.")
-            )
+            // Keep the ongoing notification minimal: app identity and the Stop action only.
+            // Android supplies the app label; avoid redundant body text and oversized launcher artwork.
             .setCategory(Notification.CATEGORY_SERVICE)
             .setPriority(Notification.PRIORITY_LOW)
             .setOngoing(true)
