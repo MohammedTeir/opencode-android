@@ -308,8 +308,8 @@ class MainActivity : ComponentActivity() {
         if (web != null && web.canGoBack()) web.goBack() else if (web != null) showSetupAgain() else super.onBackPressed()
     }
 
-    private fun setBusy(busy: Boolean, label: String) {
-        status.text = label
+    private fun setBusy(busy: Boolean, label: String? = null) {
+        label?.let { status.text = it }
         rootfsButton.isEnabled = !busy && !setup.hasRootfs()
         smokeButton.isEnabled = !busy && setup.hasRootfs()
         installButton.isEnabled = !busy && setup.hasRootfs() && !setup.isReady()
