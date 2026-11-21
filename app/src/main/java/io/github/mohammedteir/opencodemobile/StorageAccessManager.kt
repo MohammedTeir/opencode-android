@@ -25,33 +25,59 @@ object StorageAccessManager {
         return listOf("/sdcard", "/storage/emulated/0")
     }
 
-    fun guestPathForDirectory(directory: File): String? {
-        val storageRoot = sharedStorageDirectory()?.canonicalFile ?: return null
+    fun prepareDefaultWorkspace(rootfs: File): File {
+        val root = File(rootfs, "root")
+        check(!Files.isSymbolicLink(root.toPath())) { "Debian /root must not be a symbolic link." }
+        val projects = File(root, "projects")
+        check(!Files.isSymbolicLink(projects.toPath())) { "Debian projects directory must not be a symbolic link." }
+        check(projects.isDirectory || projects.mkdirs()) { "Could not create Debian /root/projects." }
+        return projects
+    }
+
+    fun guestPathForDirectory(directory: File, hostRoot: File, guestRoot: String): String? {
+        val root = runCatching { hostRoot.canonicalFile }.getOrNull() ?: return null
         val selected = runCatching { directory.canonicalFile }.getOrNull() ?: return null
         if (!selected.isDirectory || !selected.canRead() || !selected.canWrite()) return null
-        val rootPath = storageRoot.path
-        val selectedPath = selected.path
-        if (selectedPath != rootPath && !selectedPath.startsWith(rootPath + File.separator)) return null
-        val relative = selected.relativeTo(storageRoot).path.replace(File.separatorChar, '/').trim('/')
-        return if (relative.isEmpty()) "/sdcard" else "/sdcard/$relative"
+        if (selected.path != root.path && !selected.path.startsWith(root.path + File.separator)) return null
+        val relative = selected.relativeTo(root).path.replace(File.separatorChar, '/').trim('/')
+        return if (relative.isEmpty()) guestRoot else "$guestRoot/$relative"
     }
 
     fun isGuestWorkspaceAvailable(rootfs: File, guestPath: String): Boolean {
-        if (guestPath == "/root") return File(rootfs, "root").isDirectory
-        if (sharedStorageDirectory() == null) return false
-        val normalized = guestPath.trimEnd('/').ifEmpty { "/" }
-        val relative = when {
-            normalized == "/sdcard" -> ""
-            normalized.startsWith("/sdcard/") -> normalized.removePrefix("/sdcard/")
-            normalized == "/storage/emulated/0" -> ""
-            normalized.startsWith("/storage/emulated/0/") -> normalized.removePrefix("/storage/emulated/0/")
-            else -> return false
+        val normalized = normalizeGuestPath(guestPath) ?: return false
+        return when {
+            normalized == "/root" || normalized.startsWith("/root/") -> {
+                val root = File(rootfs, "root")
+                isSafeDirectory(root, normalized.removePrefix("/root").trimStart('/'))
+            }
+            normalized == "/sdcard" || normalized.startsWith("/sdcard/") ||
+                normalized == "/storage/emulated/0" || normalized.startsWith("/storage/emulated/0/") -> {
+                val storageRoot = sharedStorageDirectory()?.canonicalFile ?: return false
+                val relative = when {
+                    normalized == "/sdcard" || normalized == "/storage/emulated/0" -> ""
+                    normalized.startsWith("/sdcard/") -> normalized.removePrefix("/sdcard/")
+                    else -> normalized.removePrefix("/storage/emulated/0/")
+                }
+                isSafeDirectory(storageRoot, relative)
+            }
+            else -> false
         }
-        val parts = relative.split('/').filter { it.isNotEmpty() }
-        if (parts.any { it == "." || it == ".." || '\u0000' in it }) return false
-        val base = sharedStorageDirectory()?.canonicalFile ?: return false
-        val target = runCatching { File(base, parts.joinToString(File.separator)).canonicalFile }.getOrNull() ?: return false
-        return target.isDirectory && target.canRead() && target.canWrite() && (target.path == base.path || target.path.startsWith(base.path + File.separator))
+    }
+
+    private fun normalizeGuestPath(path: String): String? {
+        if (!path.startsWith("/") || '\u0000' in path) return null
+        val parts = path.split('/').filter { it.isNotEmpty() }
+        if (parts.any { it == "." || it == ".." }) return null
+        return "/" + parts.joinToString("/")
+    }
+
+    private fun isSafeDirectory(root: File, relative: String): Boolean {
+        val canonicalRoot = runCatching { root.canonicalFile }.getOrNull() ?: return false
+        val target = runCatching {
+            if (relative.isBlank()) canonicalRoot else File(canonicalRoot, relative).canonicalFile
+        }.getOrNull() ?: return false
+        return target.isDirectory && target.canRead() && target.canWrite() &&
+            (target.path == canonicalRoot.path || target.path.startsWith(canonicalRoot.path + File.separator))
     }
 
     private fun ensureDirectory(rootfs: File, components: List<String>) {
