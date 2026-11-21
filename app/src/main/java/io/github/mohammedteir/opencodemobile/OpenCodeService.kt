@@ -89,12 +89,12 @@ class OpenCodeService : Service() {
                         val password = SecretStore.getOrCreate(this)
                         val rootfs = File(filesDir, "rootfs")
                         val configuredWorkspace = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
-                            .getString(PREF_WORKSPACE_DIRECTORY, "/root") ?: "/root"
+                            .getString(PREF_WORKSPACE_DIRECTORY, "/root/projects") ?: "/root/projects"
                         val workspace = if (
                             StorageAccessManager.isGuestWorkspaceAvailable(rootfs, configuredWorkspace)
-                        ) configuredWorkspace else "/root"
+                        ) configuredWorkspace else "/root/projects"
                         if (workspace != configuredWorkspace) {
-                            appendLog("Saved workspace directory is unavailable; starting in /root.\n")
+                            appendLog("Saved workspace directory is unavailable; starting in /root/projects.\n")
                         }
                         val child = ProotRunner.start(
                             this,
