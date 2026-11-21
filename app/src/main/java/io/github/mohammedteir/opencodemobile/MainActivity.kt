@@ -67,12 +67,12 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(0xFFFFFFFF.toInt())
         }
         val title = TextView(this).apply {
-            text = "OpenCode Mobile (prototype)"
+            text = "OpenCode Mobile" + setup.installedVersion()?.let { " · V$it" }.orEmpty()
             textSize = 22f
             setTextColor(0xFF191919.toInt())
         }
         status = TextView(this).apply {
-            text = "M1–M4 prototype · ARM64 only"
+            text = "ARM64 only · OpenCode ${setup.installedVersion()?.let { "V$it" } ?: "not installed"}"
             textSize = 15f
             setPadding(0, dp(8), 0, dp(10))
         }
@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
         serverButton = button("4. Start server and open WebView") { startServerAndOpen() }
         updateButton = button("5. Check for OpenCode updates") { runCheckForUpdates() }
         val warning = TextView(this).apply {
-            text = "This prototype uses a pinned Debian ARM64 rootfs and OpenCode V2.3.2. It does not bind Android storage. OpenCode actions use conservative prompts. Keep the server notification visible while it runs."
+            text = "This app uses a Debian ARM64 rootfs and OpenCode. It does not bind Android storage. OpenCode actions use conservative prompts. Keep the server notification visible while it runs."
             textSize = 13f
             setPadding(0, dp(8), 0, dp(12))
         }
@@ -173,7 +173,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 setup.installOpenCodeAndPackages(::appendLog) { done, total -> showProgress(done, total, "OpenCode") }
-                appendLog("OpenCode V2.3.2 install complete. Next start the local server.\n")
+                appendLog("OpenCode V${setup.installedVersion()} install complete. Next start the local server.\n")
             } catch (t: Throwable) {
                 appendLog("OpenCode setup failed: ${t.message}\n")
                 status.text = "Setup failed — check output and retry"

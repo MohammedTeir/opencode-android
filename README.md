@@ -1,4 +1,4 @@
-# OpenCode Mobile (prototype)
+# OpenCode Mobile
 
 A native Android proof of concept that packages ARM64 PRoot, installs a Debian Bookworm ARM64 root filesystem and the original OpenCode V2 CLI on first run, starts the V2 web/API server in a foreground service, and displays its loopback web UI in an authenticated WebView. It has no Termux dependency. It is not yet release-ready or validated on a physical Android device.
 
@@ -45,4 +45,4 @@ The V2.3.2 archive checksum matched GitHub’s published digest, and the binary 
 
 On a physical ARM64 device, verify M1–M4 in order, including rootfs symlinks, DNS/HTTPS inside PRoot, package installation, the OpenCode version, permission prompts, WebView auth and streaming, server behavior with the screen off, and restart without duplicate listeners. Repeat on supported Android versions and vendors. Android’s phantom-process killer and vendor battery policies may still terminate PRoot children. Keep the foreground-service notification active.
 
-Do not distribute this prototype until M1–M4 pass on real devices, the release signing key has a secure backup, the application ID/versioning are finalized, and third-party license/source obligations and merged notices are addressed.
+Before public distribution, M1–M4 must pass on real devices, the release signing key must have a secure backup, application ID/versioning must be finalized, and third-party license/source obligations and merged notices must be addressed.
