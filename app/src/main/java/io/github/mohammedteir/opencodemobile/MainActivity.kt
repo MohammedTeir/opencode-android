@@ -564,7 +564,7 @@ class MainActivity : ComponentActivity() {
                     val output = p.inputStream.bufferedReader().readText().trim()
                     val code = p.waitFor()
                     check(code == 0) { "PRoot diagnostic command failed (exit $code): $output" }
-                    "$inventory\\n\\n=== Network diagnostics ===\\n$output"
+                    "$inventory\n\n=== Network diagnostics ===\n$output"
                 }
                 appendLog("Runtime and network diagnostics completed.\n${result}\n")
                 val runtimeNeedsAttention = result.contains("[MISSING]") ||
