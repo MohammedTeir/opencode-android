@@ -3,6 +3,8 @@ package io.github.mohammedteir.opencodemobile
 import java.io.File
 import java.io.IOException
 import java.util.UUID
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 
@@ -35,6 +37,67 @@ object RootAccessManager {
                 output = output
             )
         }
+
+    private const val PREFS_NAME = "root_mode"
+    private const val PREF_ROOT_HARDLINKS_ENABLED = "root_hardlinks_enabled"
+    private const val PREF_ROOT_HARDLINKS_VERIFIED = "root_hardlinks_verified"
+
+    fun isRootHardLinksEnabled(context: android.content.Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, 0).getBoolean(PREF_ROOT_HARDLINKS_ENABLED, false) &&
+            context.getSharedPreferences(PREFS_NAME, 0).getBoolean(PREF_ROOT_HARDLINKS_VERIFIED, false)
+
+    fun setRootHardLinksEnabled(context: android.content.Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, 0).edit()
+            .putBoolean(PREF_ROOT_HARDLINKS_ENABLED, enabled)
+            .apply()
+    }
+
+    fun setRootHardLinksVerified(context: android.content.Context, verified: Boolean) {
+        val preferences = context.getSharedPreferences(PREFS_NAME, 0)
+        preferences.edit()
+            .putBoolean(PREF_ROOT_HARDLINKS_VERIFIED, verified)
+            .putBoolean(PREF_ROOT_HARDLINKS_ENABLED, if (verified) preferences.getBoolean(PREF_ROOT_HARDLINKS_ENABLED, false) else false)
+            .apply()
+    }
+
+    /**
+     * Create a hard link only between two validated paths inside the current
+     * private staging root. This is the sole privileged filesystem mutation
+     * exposed by the root gateway.
+     */
+    fun createHardLink(stagingRoot: File, target: Path, link: Path, timeoutSeconds: Long = DEFAULT_TIMEOUT_SECONDS): OperationResult {
+        val root = stagingRoot.canonicalFile.toPath()
+        val targetFile = target.toFile().canonicalFile
+        val linkFile = link.toFile().canonicalFile
+        require(targetFile.toPath().startsWith(root) && linkFile.toPath().startsWith(root)) {
+            "Refusing a privileged hard link outside the app's staging directory."
+        }
+        require(targetFile.isFile && !Files.exists(linkFile.toPath())) {
+            "The hard-link target must be a regular file and the destination must not exist."
+        }
+        require(linkFile.parentFile?.isDirectory == true) {
+            "The hard-link destination directory does not exist."
+        }
+        val targetArg = shellQuote(targetFile.absolutePath)
+        val linkArg = shellQuote(linkFile.absolutePath)
+        val script = """
+            set -eu
+            ln $targetArg $linkArg
+            target_inode=$(stat -c %i $targetArg)
+            link_inode=$(stat -c %i $linkArg)
+            test "$target_inode" = "$link_inode"
+            echo ROOT_HARDLINK_CREATED
+        """.trimIndent()
+        return executeFixed("Create Debian hard link with root", script, timeoutSeconds) { output, exitCode ->
+            val created = exitCode == 0 && output.contains("ROOT_HARDLINK_CREATED")
+            OperationResult(
+                success = created,
+                title = "Root-assisted hard-link creation",
+                message = if (created) "Native hard link created and inode-verified." else "Root could not create or verify this hard link (exit $exitCode).",
+                output = output
+            )
+        }
+    }
 
     /**
      * Read-only diagnostics of the app-private cache filesystem and Android
