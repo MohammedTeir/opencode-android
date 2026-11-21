@@ -672,7 +672,7 @@ class SetupManager(private val context: Context) {
         }.distinct()
         val hosts = etc.resolve("hosts")
         if (Files.isSymbolicLink(hosts)) Files.delete(hosts)
-        val previousHosts = if (Files.exists(hosts)) Files.readString(hosts)
+        val previousHosts = if (Files.exists(hosts)) String(Files.readAllBytes(hosts), Charsets.UTF_8)
             else "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n"
         val markerStart = "# OPENCODE-MOBILE-DEBIAN-DNS-START"
         val markerEnd = "# OPENCODE-MOBILE-DEBIAN-DNS-END"
@@ -684,7 +684,7 @@ class SetupManager(private val context: Context) {
             resolvedEntries.forEach { (address, host) -> append(address).append(' ').append(host).append('\n') }
             append(markerEnd).append('\n')
         }
-        Files.writeString(hosts, cleanHosts.trimEnd() + "\n" + block)
+        Files.write(hosts, (cleanHosts.trimEnd() + "\n" + block).toByteArray(Charsets.UTF_8))
         log("Android resolver supplied ${resolvedEntries.size} Debian mirror address records for APT fallback.")
         if (resolvedEntries.isEmpty()) log("Android resolver could not resolve Debian mirror hosts; APT will rely on resolv.conf.")
     }
