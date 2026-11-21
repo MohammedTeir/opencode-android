@@ -25,6 +25,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Build debug APK
         run: ./gradlew --no-daemon assembleDebug
+      - name: Verify 16 KB APK ZIP alignment
+        run: '"$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk'
+      - name: Verify native ELF 16 KB page-size compatibility
+        run: python3 scripts/check-elf-page-size.py --apk app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
           name: opencode-mobile-debug-${{ github.sha }}
