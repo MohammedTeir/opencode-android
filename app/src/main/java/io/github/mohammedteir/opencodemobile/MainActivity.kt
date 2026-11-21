@@ -52,6 +52,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var smokeButton: Button
     private lateinit var installButton: Button
     private lateinit var updateButton: Button
+    private lateinit var rootAccessButton: Button
     private lateinit var serverButton: Button
     private lateinit var activityPanel: ScrollView
     private lateinit var activityToggle: TextView
@@ -215,6 +216,24 @@ class MainActivity : ComponentActivity() {
             marginStart = dp(6)
         })
         page.addView(maintenance)
+
+        val rootCard = card("#1B1919", 14, "#302B2B").apply {
+            setPadding(dp(13), dp(12), dp(13), dp(12))
+        }
+        rootCard.addView(text("OPTIONAL ROOT SUPPORT", 10f, "#D8D2D2", true).apply {
+            letterSpacing = 0.08f
+        })
+        rootCard.addView(text(
+            "Root is never required. Check availability only when you choose; Android will ask your root manager for authorization.",
+            11f, "#A9A2A2", false
+        ).apply {
+            setPadding(0, dp(5), 0, dp(9))
+        })
+        rootAccessButton = compactButton("Check root access", false) { requestRootAccessCheck() }
+        rootCard.addView(rootAccessButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
+        page.addView(rootCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(8)
+        })
 
         page.addView(text("Runs locally at 127.0.0.1 · Android storage is not mounted into Debian.", 10f, "#777070", false).apply {
             setPadding(dp(2), dp(5), dp(2), dp(10))
@@ -457,6 +476,45 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun requestRootAccessCheck() {
+        AlertDialog.Builder(this)
+            .setTitle("Check optional root access?")
+            .setMessage(
+                "This runs one read-only identity check (id -u) through su. " +
+                    "Your root manager may ask whether to grant this app access. " +
+                    "No system files or settings will be changed, and root is not required for OpenCode."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue") { _, _ ->
+                setBusy(true, "Checking optional root access…")
+                lifecycleScope.launch {
+                    try {
+                        val result = withContext(Dispatchers.IO) {
+                            RootAccessManager.checkAccess()
+                        }
+                        appendLog("Root access check: ${result.message}\n")
+                        if (result.output.isNotBlank()) appendLog("Root check output: ${result.output}\n")
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle(if (result.granted) "Root access available" else "Root access unavailable")
+                            .setMessage(result.message)
+                            .setPositiveButton("OK", null)
+                            .show()
+                    } catch (error: Exception) {
+                        appendLog("Root access check failed: ${error.message}\n")
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle("Root check failed")
+                            .setMessage(error.message ?: "An unexpected error occurred.")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    } finally {
+                        setBusy(false)
+                        refreshButtons()
+                    }
+                }
+            }
+            .show()
+    }
+
     private fun requestBatteryExemption() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         val powerManager = getSystemService(PowerManager::class.java)
@@ -603,6 +661,7 @@ class MainActivity : ComponentActivity() {
         installButton.isEnabled = !busy && setup.hasRootfs() && !setup.isReady()
         serverButton.isEnabled = !busy && setup.isReady()
         updateButton.isEnabled = !busy && setup.isReady()
+        rootAccessButton.isEnabled = !busy
         progress.visibility = if (busy) View.VISIBLE else View.GONE
         if (busy) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
