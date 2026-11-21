@@ -28,7 +28,7 @@ object StorageAccessManager {
     fun guestPathForDirectory(directory: File): String? {
         val storageRoot = sharedStorageDirectory()?.canonicalFile ?: return null
         val selected = runCatching { directory.canonicalFile }.getOrNull() ?: return null
-        if (!selected.isDirectory || !selected.canRead()) return null
+        if (!selected.isDirectory || !selected.canRead() || !selected.canWrite()) return null
         val rootPath = storageRoot.path
         val selectedPath = selected.path
         if (selectedPath != rootPath && !selectedPath.startsWith(rootPath + File.separator)) return null
@@ -51,7 +51,7 @@ object StorageAccessManager {
         if (parts.any { it == "." || it == ".." || '\u0000' in it }) return false
         val base = sharedStorageDirectory()?.canonicalFile ?: return false
         val target = runCatching { File(base, parts.joinToString(File.separator)).canonicalFile }.getOrNull() ?: return false
-        return target.isDirectory && (target.path == base.path || target.path.startsWith(base.path + File.separator))
+        return target.isDirectory && target.canRead() && target.canWrite() && (target.path == base.path || target.path.startsWith(base.path + File.separator))
     }
 
     private fun ensureDirectory(rootfs: File, components: List<String>) {
