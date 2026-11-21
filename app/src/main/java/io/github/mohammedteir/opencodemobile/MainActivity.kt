@@ -522,7 +522,7 @@ class MainActivity : ComponentActivity() {
             "This performs read-only checks of UID, SELinux status, app-private directory permissions, and filesystem capacity. It does not change system settings."
         ) {
             runRootOperation("Root diagnostics") {
-                RootAccessManager.runDiagnostics(cacheDir)
+                RootAccessManager.runDiagnostics(cacheDir, File(filesDir, "rootfs"))
             }
         }
     }
