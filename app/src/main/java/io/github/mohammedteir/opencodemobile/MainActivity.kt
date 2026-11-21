@@ -42,6 +42,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -102,6 +103,23 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::storageStatus.isInitialized) refreshStorageAccessUi()
+        if (webView != null) setWorkspaceImmersive(true)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && webView != null) setWorkspaceImmersive(true)
+    }
+
+    private fun setWorkspaceImmersive(enabled: Boolean) {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (enabled) {
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     private fun applySystemBarInsets(root: View) {
@@ -849,9 +867,29 @@ class MainActivity : ComponentActivity() {
                 false
             }
             if (ready) {
+                val pairingCode = withContext(Dispatchers.IO) {
+                    val client = OkHttpClient.Builder()
+                        .connectTimeout(5, TimeUnit.SECONDS)
+                        .readTimeout(10, TimeUnit.SECONDS)
+                        .build()
+                    val auth = Credentials.basic("opencode", SecretStore.getOrCreate(this@MainActivity))
+                    val request = Request.Builder()
+                        .url(SERVER_URL + "/api/pair")
+                        .header("Authorization", auth)
+                        .header("Accept", "application/json")
+                        .post(ByteArray(0).toRequestBody(null))
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        val body = response.body?.string().orEmpty()
+                        check(response.isSuccessful) {
+                            "Could not create local web session (HTTP ${response.code}): ${body.take(240)}"
+                        }
+                        org.json.JSONObject(body).getString("code")
+                    }
+                }
                 if (setup.deletePreviousBinary()) appendLog("Verified updated OpenCode server; previous binary removed.\n")
-                status.text = "Server ready · authenticated workspace"
-                showWebView()
+                status.text = "Server ready · opening workspace"
+                showWebView(pairingCode)
             } else {
                 status.text = "Server did not become ready in 60 seconds"
                 appendLog("Authenticated /api/info did not report the installed OpenCode version. Check logs and confirm the server starts under PRoot.\n")
@@ -860,26 +898,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun showWebView() {
+    private fun showWebView(pairingCode: String) {
         content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.parseColor("#101010"))
+            setBackgroundColor(Color.BLACK)
         }
-        val toolbar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            background = rounded("#171515", 0)
-        }
-        val back = button("Back", false) { showSetupAgain() }
-        toolbar.addView(back, LinearLayout.LayoutParams(dp(76), dp(44)))
-        val pageTitle = text("OpenCode workspace", 14f, "#F1ECEC", true)
-        toolbar.addView(pageTitle, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-            leftMargin = dp(12)
-        })
-        val reload = button("Reload", false) { webView?.reload() }
-        toolbar.addView(reload, LinearLayout.LayoutParams(dp(82), dp(44)))
-        content.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60)))
 
         val web = WebView(this).apply {
             settings.javaScriptEnabled = true
@@ -915,13 +938,15 @@ class MainActivity : ComponentActivity() {
             }
         }
         webView = web
-        content.addView(web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        content.addView(web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(content)
-        applySystemBarInsets(content)
-        web.loadUrl(SERVER_URL)
+        setWorkspaceImmersive(true)
+        // Redeem the single-use pairing code; OpenCode sets a browser session cookie and redirects to the workspace.
+        web.loadUrl("$SERVER_URL/auth/connect/$pairingCode")
     }
 
     private fun showSetupAgain() {
+        setWorkspaceImmersive(false)
         webView?.stopLoading()
         webView?.destroy()
         webView = null
