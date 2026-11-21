@@ -294,12 +294,23 @@ class SetupManager(private val context: Context) {
             val body = response.body ?: error("Empty response")
             val responseEtag = response.header("ETag").orEmpty()
             val responseLastModified = response.header("Last-Modified").orEmpty()
+            if (append &&
+                ((etag.isNotBlank() && responseEtag.isNotBlank() && etag != responseEtag) ||
+                    (lastModified.isNotBlank() && responseLastModified.isNotBlank() && lastModified != responseLastModified))
+            ) {
+                partial.delete()
+                metadata.delete()
+                response.close()
+                return download(url, dest, progress)
+            }
+            val effectiveEtag = responseEtag.ifBlank { etag }
+            val effectiveLastModified = responseLastModified.ifBlank { lastModified }
             metadata.delete()
-            if (responseEtag.isNotBlank() || responseLastModified.isNotBlank()) {
+            if (effectiveEtag.isNotBlank() || effectiveLastModified.isNotBlank()) {
                 Properties().apply {
                     setProperty("url", url)
-                    if (responseEtag.isNotBlank()) setProperty("etag", responseEtag)
-                    if (responseLastModified.isNotBlank()) setProperty("lastModified", responseLastModified)
+                    if (effectiveEtag.isNotBlank()) setProperty("etag", effectiveEtag)
+                    if (effectiveLastModified.isNotBlank()) setProperty("lastModified", effectiveLastModified)
                 }.let { saved ->
                     val temp = File(metadata.parentFile, metadata.name + ".tmp")
                     temp.outputStream().use { saved.store(it, "OpenCode download resume metadata") }
@@ -327,6 +338,11 @@ class SetupManager(private val context: Context) {
                         progress(done, total)
                     }
                     out.fd.sync()
+                }
+            }
+            if (total >= 0L) {
+                check(done == total) {
+                    "Download incomplete: received $done of $total bytes; partial file retained for resume."
                 }
             }
         }
