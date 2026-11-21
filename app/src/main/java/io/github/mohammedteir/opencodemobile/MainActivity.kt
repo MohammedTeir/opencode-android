@@ -619,7 +619,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         storageButton.isEnabled = true
-        if (StorageAccessManager.hasAccess(this)) {
+        if (StorageAccessManager.sharedStorageDirectory() != null) {
             storageStatus.text = "Enabled · Debian paths: /sdcard and /storage/emulated/0"
             storageButton.text = "Manage access"
         } else {
