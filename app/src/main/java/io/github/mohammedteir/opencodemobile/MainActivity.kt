@@ -279,7 +279,7 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(11), dp(11), dp(11), dp(11))
         }
         workspacePanel.addView(text("PROJECT WORKSPACE", 9f, "#A9A2A2", true).apply { letterSpacing = 0.08f })
-        workspacePathLabel = text("/root", 12f, "#F1ECEC", true).apply { setPadding(0, dp(5), 0, dp(9)) }
+        workspacePathLabel = text("/root/projects", 12f, "#F1ECEC", true).apply { setPadding(0, dp(5), 0, dp(9)) }
         workspacePanel.addView(workspacePathLabel)
         workspaceChooseButton = compactButton("Choose project folder", false) { chooseWorkspaceDirectory() }
         workspacePanel.addView(workspaceChooseButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
@@ -670,17 +670,13 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshWorkspaceLabel() {
         val rootfs = File(filesDir, "rootfs")
+        runCatching { StorageAccessManager.prepareDefaultWorkspace(rootfs) }
         val stored = getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE)
-            .getString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, "/root") ?: "/root"
+            .getString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, "/root/projects") ?: "/root/projects"
         val available = StorageAccessManager.isGuestWorkspaceAvailable(rootfs, stored)
-        val selected = when {
-            stored == "/root" || available -> stored
-            else -> "$stored (unavailable; server will fall back to /root)"
-        }
-        workspacePathLabel.text = selected
-        val enabled = StorageAccessManager.sharedStorageDirectory() != null
-        workspaceChooseButton.isEnabled = enabled && !OpenCodeService.isRunning
-        storageTestButton.isEnabled = enabled
+        workspacePathLabel.text = if (available) stored else "$stored (unavailable)"
+        workspaceChooseButton.isEnabled = !OpenCodeService.isRunning
+        storageTestButton.isEnabled = StorageAccessManager.sharedStorageDirectory() != null
     }
 
     private fun chooseWorkspaceDirectory() {
@@ -688,61 +684,89 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Stop OpenCode before changing its workspace directory", Toast.LENGTH_LONG).show()
             return
         }
-        val root = StorageAccessManager.sharedStorageDirectory()
-        if (root == null) {
-            Toast.makeText(this, "Grant shared-storage access first", Toast.LENGTH_LONG).show()
+        val rootfs = File(filesDir, "rootfs")
+        val options = mutableListOf<String>()
+        val roots = mutableListOf<Triple<File, File, String>>()
+        val debianProjects = runCatching { StorageAccessManager.prepareDefaultWorkspace(rootfs) }.getOrNull()
+        if (debianProjects != null) {
+            options += "Debian filesystem  ·  /root"
+            roots += Triple(File(rootfs, "root"), File(rootfs, "root"), "/root")
+        }
+        val androidStorage = StorageAccessManager.sharedStorageDirectory()
+        if (androidStorage != null) {
+            options += "Android shared storage  ·  /sdcard"
+            roots += Triple(androidStorage, androidStorage, "/sdcard")
+        }
+        if (options.isEmpty()) {
+            Toast.makeText(this, "Debian environment is not installed yet", Toast.LENGTH_LONG).show()
             return
         }
-        showWorkspaceDirectoryPicker(root, root)
+        AlertDialog.Builder(this)
+            .setTitle("Choose workspace location")
+            .setItems(options.toTypedArray()) { _, which ->
+                val (start, hostRoot, guestRoot) = roots[which]
+                val currentGuest = getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE)
+                    .getString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, "/root/projects") ?: "/root/projects"
+                val current = directoryForGuestPath(rootfs, currentGuest, hostRoot, guestRoot) ?: start
+                showWorkspaceDirectoryPicker(current, hostRoot, guestRoot)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
-    private fun showWorkspaceDirectoryPicker(current: File, storageRoot: File) {
-        val root = runCatching { storageRoot.canonicalFile }.getOrNull() ?: return
+    private fun directoryForGuestPath(rootfs: File, guestPath: String, hostRoot: File, guestRoot: String): File? {
+        if (guestPath != guestRoot && !guestPath.startsWith("$guestRoot/")) return null
+        val relative = guestPath.removePrefix(guestRoot).trimStart('/')
+        val candidate = if (relative.isBlank()) hostRoot else File(hostRoot, relative)
+        return runCatching { candidate.canonicalFile }.getOrNull()
+            ?.takeIf { it.isDirectory && (it.path == hostRoot.canonicalPath || it.path.startsWith(hostRoot.canonicalPath + File.separator)) }
+    }
+
+    private fun showWorkspaceDirectoryPicker(current: File, hostRoot: File, guestRoot: String) {
+        val root = runCatching { hostRoot.canonicalFile }.getOrNull() ?: return
         val folder = runCatching { current.canonicalFile }.getOrNull() ?: return
         if (folder.path != root.path && !folder.path.startsWith(root.path + File.separator)) return
         val listing = runCatching { folder.listFiles() }
         val children = listing.getOrNull()
             ?.filter { child ->
-                // Do not use canRead() as a discovery filter: Android's emulated
-                // storage layer can report false negatives for directory metadata.
-                // Actual read/write access is validated when a folder is selected.
                 child.isDirectory &&
-                    !(folder.name == "Android" && child.name in setOf("data", "obb"))
+                    !(guestRoot == "/sdcard" && folder.name == "Android" && child.name in setOf("data", "obb"))
             }
             ?.sortedBy { it.name.lowercase() }
             .orEmpty()
+        val guestCurrent = StorageAccessManager.guestPathForDirectory(folder, root, guestRoot)
         val pickerMessage = buildString {
-            append(folder.path)
+            append(guestCurrent ?: folder.name)
             when {
-                listing.isFailure -> append("\n\nCould not list this folder: ${listing.exceptionOrNull()?.message ?: "unknown error"}")
-                listing.getOrNull() == null -> append("\n\nAndroid returned no folder listing. Check All files access, then reload this picker.")
-                children.isEmpty() -> append("\n\nNo subfolders were found here. You can select this folder, or go back to its parent.")
-                else -> append("\n\nSelect a folder below, or use the current folder.")
+                listing.isFailure -> append("\\n\\nCould not list this folder: ${listing.exceptionOrNull()?.message ?: "unknown error"}")
+                listing.getOrNull() == null -> append("\\n\\nThis folder could not be listed.")
+                children.isEmpty() -> append("\\n\\nNo subfolders found. You can select this folder or go back.")
+                else -> append("\\n\\nChoose a subfolder, or use the current folder.")
             }
         }
         val dialog = AlertDialog.Builder(this)
             .setTitle("Choose project folder")
             .setMessage(pickerMessage)
             .setItems(children.map { "📁  ${it.name}" }.toTypedArray()) { _, which ->
-                if (which in children.indices) showWorkspaceDirectoryPicker(children[which], root)
+                if (which in children.indices) showWorkspaceDirectoryPicker(children[which], root, guestRoot)
             }
             .setPositiveButton("Use this folder") { _, _ ->
-                val guestPath = StorageAccessManager.guestPathForDirectory(folder)
+                val guestPath = StorageAccessManager.guestPathForDirectory(folder, root, guestRoot)
                 if (guestPath == null) {
-                    Toast.makeText(this, "Choose a readable and writable folder inside shared storage", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "This folder is not readable and writable", Toast.LENGTH_LONG).show()
                 } else {
                     getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE).edit()
                         .putString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, guestPath)
                         .apply()
                     refreshWorkspaceLabel()
-                    appendLog("Workspace directory selected: $guestPath\n")
-                    Toast.makeText(this, "Workspace directory saved", Toast.LENGTH_SHORT).show()
+                    appendLog("Workspace directory selected: $guestPath\\n")
+                    Toast.makeText(this, "Workspace saved", Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("Cancel", null)
         if (folder.path != root.path) {
             dialog.setNeutralButton("Up") { _, _ ->
-                folder.parentFile?.let { showWorkspaceDirectoryPicker(it, root) }
+                folder.parentFile?.let { showWorkspaceDirectoryPicker(it, root, guestRoot) }
             }
         }
         dialog.show()
@@ -870,7 +894,7 @@ class MainActivity : ComponentActivity() {
         status.text = "Starting OpenCode server…"
         appendLog("Starting OpenCode on 127.0.0.1:4096…\n")
         val selectedWorkspace = getSharedPreferences(OpenCodeService.PREFERENCES, MODE_PRIVATE)
-            .getString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, "/root") ?: "/root"
+            .getString(OpenCodeService.PREF_WORKSPACE_DIRECTORY, "/root/projects") ?: "/root/projects"
         val service = Intent(this, OpenCodeService::class.java)
             .putExtra(OpenCodeService.EXTRA_WORKING_DIRECTORY, selectedWorkspace)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service)
