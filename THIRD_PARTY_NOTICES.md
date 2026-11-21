@@ -10,6 +10,8 @@ The Android build scripts are from the release repository and are licensed under
 
 The installer downloads the unmodified ARM64 CLI from [anomalyco/opencode v2.3.2](https://github.com/anomalyco/opencode/releases/tag/v2.3.2). The OpenCode package declares MIT licensing; its license text is in `OPENCODE-LICENSE`.
 
+The launcher icons are copied from the official production Android assets in [anomalyco/opencode](https://github.com/anomalyco/opencode/tree/main/packages/desktop/icons/prod/android). They are distributed under the upstream MIT license; the applicable license text is in `OPENCODE-LICENSE`.
+
 ## Debian
 
 The first-run root filesystem is a Debian Bookworm ARM64 container image from [Linux Containers image server](https://images.linuxcontainers.org/). Debian packages have individual copyright and license notices under `/usr/share/doc/*/copyright` within the installed root filesystem. This prototype does not bundle a consolidated license viewer.
