@@ -260,7 +260,7 @@ class MainActivity : ComponentActivity() {
             isChecked = RootAccessManager.isRootHardLinksEnabled(this@MainActivity)
             setOnCheckedChangeListener { _, checked ->
                 RootAccessManager.setRootHardLinksEnabled(this@MainActivity, checked)
-                appendLog(if (checked) "Root-assisted Debian hard links enabled by user.\\n" else "Root-assisted Debian hard links disabled by user.\\n")
+                appendLog(if (checked) "Root-assisted Debian hard links enabled by user.\n" else "Root-assisted Debian hard links disabled by user.\n")
             }
         }
         rootCard.addView(rootHardLinkSwitch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
