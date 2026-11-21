@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
             gravity = android.view.Gravity.CENTER_VERTICAL
             addView(text("SETUP", 10f, "#B7B1B1", true).apply { letterSpacing = 0.10f })
             addView(View(this@MainActivity), LinearLayout.LayoutParams(0, 1, 1f))
-            addView(text("Complete in order", 11f, "#827B7B", false))
+            addView(text("One-time setup", 11f, "#827B7B", false))
         }
         page.addView(setupHeading, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(18)
@@ -517,22 +517,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    private fun runInstallRootfs() {
-        setBusy(true, "Installing Debian environment…")
-        lifecycleScope.launch {
-            try {
-                setup.installRootfs(::appendLog) { done, total -> showProgress(done, total, "Debian") }
-                appendLog("Debian environment ready. Run the runtime check next.\n")
-            } catch (t: Throwable) {
-                appendLog("Rootfs setup failed: ${t.message}\n")
-                status.text = "Setup failed — check activity and retry"
-            } finally {
-                setBusy(false)
-                refreshButtons()
-            }
-        }
-    }
-
     private fun runSmokeTest() {
         setBusy(true, "Checking Linux runtime and network…")
         lifecycleScope.launch {
@@ -593,22 +577,6 @@ class MainActivity : ComponentActivity() {
             } catch (t: Throwable) {
                 appendLog("Runtime check failed: ${t.message}\n")
                 status.text = "Runtime check failed — inspect activity"
-            } finally {
-                setBusy(false)
-                refreshButtons()
-            }
-        }
-    }
-
-    private fun runInstallOpenCode() {
-        setBusy(true, "Installing OpenCode and packages…")
-        lifecycleScope.launch {
-            try {
-                setup.installOpenCodeAndPackages(::appendLog) { done, total -> showProgress(done, total, "OpenCode") }
-                appendLog("OpenCode V${setup.installedVersion()} installed. Start the local workspace when ready.\n")
-            } catch (t: Throwable) {
-                appendLog("OpenCode setup failed: ${t.message}\n")
-                status.text = "Setup failed — check activity and retry"
             } finally {
                 setBusy(false)
                 refreshButtons()
