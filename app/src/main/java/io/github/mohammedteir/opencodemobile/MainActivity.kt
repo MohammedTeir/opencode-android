@@ -843,7 +843,7 @@ class MainActivity : ComponentActivity() {
                 }
                 storageStatus.text = "Access verified · project files are reachable"
                 storageStatus.setTextColor(Color.parseColor("#B8D8B8"))
-                appendLog("Shared-storage test passed: ${'$'}result\n")
+                appendLog("Shared-storage test passed: $result\n")
             } catch (error: Throwable) {
                 val message = error.message ?: "Unknown storage test failure"
                 storageStatus.text = "Storage test failed · $message"
