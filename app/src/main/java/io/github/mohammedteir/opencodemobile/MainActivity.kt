@@ -537,12 +537,12 @@ class MainActivity : ComponentActivity() {
                 val result = withContext(Dispatchers.IO) { operation() }
                 rootStatus.text = result.message
                 rootStatus.setTextColor(Color.parseColor(if (result.success) "#A8D5B5" else "#E3B0A8"))
-                RootOperationLog.append(this@MainActivity, result.title, result.success, result.message + "\\n" + result.output)
-                appendLog("[$label] ${result.message}\\n")
-                if (result.output.isNotBlank()) appendLog(result.output + "\\n")
+                RootOperationLog.append(this@MainActivity, result.title, result.success, result.message + "\n" + result.output)
+                appendLog("[$label] ${result.message}\n")
+                if (result.output.isNotBlank()) appendLog(result.output + "\n")
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle(result.title)
-                    .setMessage(result.message + if (result.output.isNotBlank()) "\\n\\n" + result.output.take(6_000) else "")
+                    .setMessage(result.message + if (result.output.isNotBlank()) "\n\n" + result.output.take(6_000) else "")
                     .setPositiveButton("OK", null)
                     .show()
             } catch (error: Exception) {
@@ -550,7 +550,7 @@ class MainActivity : ComponentActivity() {
                 rootStatus.text = message
                 rootStatus.setTextColor(Color.parseColor("#E3B0A8"))
                 RootOperationLog.append(this@MainActivity, label, false, message)
-                appendLog("[$label] failed: $message\\n")
+                appendLog("[$label] failed: $message\n")
             } finally {
                 setBusy(false)
                 refreshButtons()
