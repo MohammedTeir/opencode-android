@@ -222,6 +222,7 @@ class SetupManager(private val context: Context) {
         val backup = File(rootfs, "usr/local/bin/opencode.previous")
         val previousVersionFile = File(context.filesDir, "opencode.previous.version")
         var previousMoved = false
+        var repairTargetMovedToFailed: File? = null
         var newBinaryInstalled = false
         try {
             installOpenCodeTar(archive, staging)
@@ -230,15 +231,21 @@ class SetupManager(private val context: Context) {
             }
 
             if (target.isFile) {
-                val previousVersion = currentVersionText?.takeIf { parseVersion(it) != null }
-                Files.move(target.toPath(), backup.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                previousMoved = true
-                if (previousVersion != null) writeVersionAtomically(previousVersionFile, previousVersion)
-                else {
-                    check(previousVersionFile.delete() || !previousVersionFile.exists()) {
-                        "Could not clear stale rollback metadata; the existing executable was restored."
+                if (requireNewer) {
+                    val previousVersion = currentVersionText?.takeIf { parseVersion(it) != null }
+                    Files.move(target.toPath(), backup.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    previousMoved = true
+                    if (previousVersion != null) writeVersionAtomically(previousVersionFile, previousVersion)
+                    else {
+                        check(previousVersionFile.delete() || !previousVersionFile.exists()) {
+                            "Could not clear stale rollback metadata; the existing executable was restored."
+                        }
+                        log("Previous binary retained, but its version is unknown; one-tap rollback is unavailable for it.")
                     }
-                    log("Previous binary retained, but its version is unknown; one-tap rollback is unavailable for it.")
+                } else {
+                    repairTargetMovedToFailed = File(rootfs, "usr/local/bin/opencode.failed-${System.currentTimeMillis()}")
+                    Files.move(target.toPath(), repairTargetMovedToFailed!!.toPath())
+                    log("The replaced executable was retained as ${repairTargetMovedToFailed!!.name}; the last known-good rollback copy was preserved.")
                 }
             }
             Files.move(staging.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
@@ -253,6 +260,9 @@ class SetupManager(private val context: Context) {
             }
             if (previousMoved && backup.exists()) {
                 runCatching { Files.move(backup.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING) }
+            }
+            repairTargetMovedToFailed?.takeIf { it.exists() }?.let { failed ->
+                if (!target.exists()) runCatching { Files.move(failed.toPath(), target.toPath()) }
             }
             if (currentVersionText != null) {
                 runCatching { writeVersionAtomically(File(context.filesDir, "setup_ready"), currentVersionText) }
