@@ -186,10 +186,34 @@ class SetupManager(private val context: Context) {
             parentFile?.mkdirs()
             writeText("APT::Sandbox::User \"root\";\n")
         }
-        val script = "export DEBIAN_FRONTEND=noninteractive; apt-get update && apt-get install -y --no-install-recommends git ripgrep curl ca-certificates procps openssh-client unzip"
+        // Refresh DNS immediately before APT: Android may have changed networks since rootfs extraction.
+        postExtractFixes(rootfs, log)
+        val script = """
+            set -eu
+            export DEBIAN_FRONTEND=noninteractive
+            echo "Checking Debian mirror DNS from inside PRoot…"
+            if ! getent ahosts deb.debian.org; then
+                echo "DNS preflight failed for deb.debian.org. Check connectivity, VPN, Private DNS, or the active network, then retry." >&2
+                exit 42
+            fi
+            echo "Refreshing Debian package indexes…"
+            if ! apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=25 update; then
+                echo "APT index refresh failed. Package installation was not attempted; fix the DNS/network error and retry." >&2
+                exit 43
+            fi
+            echo "Installing required packages…"
+            apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=25 install -y --no-install-recommends git ripgrep curl ca-certificates procps openssh-client unzip
+        """.trimIndent()
         val p = ProotRunner.start(context, listOf("/bin/bash", "-lc", script))
         p.inputStream.bufferedReader().useLines { lines -> lines.forEach(log) }
-        check(p.waitFor() == 0) { "apt package installation failed." }
+        val exitCode = p.waitFor()
+        check(exitCode == 0) {
+            when (exitCode) {
+                42 -> "Debian DNS preflight failed. Android could not resolve deb.debian.org inside PRoot."
+                43 -> "APT could not refresh package indexes. Check the network/DNS log and retry."
+                else -> "APT package installation failed (exit code $exitCode)."
+            }
+        }
         File(context.filesDir, "setup_ready").writeText("$OPENCODE_VERSION\n")
         log("OpenCode V$OPENCODE_VERSION and required packages installed.")
     }
@@ -608,19 +632,61 @@ class SetupManager(private val context: Context) {
             Files.createDirectories(path)
             if (name == "tmp") Os.chmod(path.toString(), 1023) // 01777
         }
+        val connectivity = runCatching {
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        }.getOrNull()
+        val activeNetwork = runCatching { connectivity?.activeNetwork }.getOrNull()
         val dns = runCatching {
-            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
-            cm.getLinkProperties(cm.activeNetwork)?.dnsServers?.map { it.hostAddress }?.filterNotNull().orEmpty()
-        }.getOrDefault(emptyList()).ifEmpty { listOf("1.1.1.1", "8.8.8.8") }
+            connectivity?.getLinkProperties(activeNetwork)?.dnsServers
+                ?.map { it.hostAddress.substringBefore('%') }
+                ?.filter { address ->
+                    runCatching {
+                        val parsed = java.net.InetAddress.getByName(address)
+                        !parsed.isAnyLocalAddress && !parsed.isLoopbackAddress &&
+                            !parsed.isLinkLocalAddress && !parsed.isMulticastAddress
+                    }.getOrDefault(false)
+                }
+                .orEmpty()
+        }.getOrDefault(emptyList())
+        val selectedDns = dns.distinct().ifEmpty { listOf("1.1.1.1", "8.8.8.8") }
         val etc = File(base, "etc").toPath()
         if (Files.isSymbolicLink(etc)) Files.delete(etc)
         Files.createDirectories(etc)
         val resolv = etc.resolve("resolv.conf")
         Files.deleteIfExists(resolv)
         Files.newOutputStream(resolv).use {
-            it.write((dns.distinct().joinToString("\n") { address -> "nameserver $address" } + "\n").toByteArray())
+            it.write((selectedDns.joinToString("\n") { address -> "nameserver $address" } + "\n").toByteArray())
         }
-        log("Rootfs networking configured with Android DNS.")
+        log("Rootfs DNS servers: ${selectedDns.joinToString(", ")}")
+
+        // Android may resolve through its per-network resolver while direct UDP/53
+        // queries from sandboxed child processes are blocked. Add a temporary hosts
+        // fallback for Debian mirror endpoints so APT can bootstrap in that case.
+        val mirrorHosts = listOf("deb.debian.org", "security.debian.org", "cdn-fastly.deb.debian.org")
+        val resolvedEntries = mirrorHosts.flatMap { host ->
+            val addresses = runCatching {
+                if (activeNetwork != null) activeNetwork.getAllByName(host).toList()
+                else java.net.InetAddress.getAllByName(host).toList()
+            }.getOrDefault(emptyList())
+            addresses.map { it.hostAddress.substringBefore('%') to host }
+        }.distinct()
+        val hosts = etc.resolve("hosts")
+        if (Files.isSymbolicLink(hosts)) Files.delete(hosts)
+        val previousHosts = if (Files.exists(hosts)) Files.readString(hosts)
+            else "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n"
+        val markerStart = "# OPENCODE-MOBILE-DEBIAN-DNS-START"
+        val markerEnd = "# OPENCODE-MOBILE-DEBIAN-DNS-END"
+        val markerPattern = "(?s)\\n?" + java.util.regex.Pattern.quote(markerStart) +
+            ".*?" + java.util.regex.Pattern.quote(markerEnd) + "\\n?"
+        val cleanHosts = previousHosts.replace(Regex(markerPattern), "\n")
+        val block = buildString {
+            append(markerStart).append('\n')
+            resolvedEntries.forEach { (address, host) -> append(address).append(' ').append(host).append('\n') }
+            append(markerEnd).append('\n')
+        }
+        Files.writeString(hosts, cleanHosts.trimEnd() + "\n" + block)
+        log("Android resolver supplied ${resolvedEntries.size} Debian mirror address records for APT fallback.")
+        if (resolvedEntries.isEmpty()) log("Android resolver could not resolve Debian mirror hosts; APT will rely on resolv.conf.")
     }
 
     private fun writeOpenCodeDefaults() {
