@@ -1,6 +1,7 @@
 package io.github.mohammedteir.opencodemobile
 
 import android.content.Context
+import android.system.ErrnoException
 import android.system.Os
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -159,7 +160,7 @@ class SetupManager(private val context: Context) {
         val stage = File(context.filesDir, "rootfs-staging-${System.currentTimeMillis()}")
         try {
             log("Extracting rootfs (this may take several minutes)…")
-            extractArchive(archive, stage, compressed = "xz")
+            extractArchive(archive, stage, compressed = "xz", log = log)
             postExtractFixes(stage, log)
             check(File(stage, "bin/bash").exists()) { "Archive did not contain a Debian root filesystem." }
             check(stage.renameTo(rootfs)) { "Could not activate the extracted rootfs." }
@@ -260,7 +261,7 @@ class SetupManager(private val context: Context) {
         error("The OpenCode release archive did not contain an opencode executable.")
     }
 
-    private fun extractArchive(archive: File, destination: File, compressed: String) {
+    private fun extractArchive(archive: File, destination: File, compressed: String, log: (String) -> Unit) {
         check(destination.mkdirs()) { "Could not create staging directory." }
         val stagePath = destination.toPath().toAbsolutePath().normalize()
         val symlinks = mutableListOf<Pair<Path, String>>()
@@ -306,17 +307,21 @@ class SetupManager(private val context: Context) {
                 }
             }
         }
+        // Probe the exact staging filesystem once. This avoids repeatedly invoking
+        // a syscall that the current Android filesystem may reject for every tar link.
+        var nativeHardLinksSupported = hardlinks.isNotEmpty() && probeHardLinkSupport(stagePath, log)
+        var copiedHardLinks = 0
+        var createdHardLinks = 0
         for ((link, target) in hardlinks) {
             ensureNoSymlinkParents(stagePath, link.parent)
             ensureNoSymlinkParents(stagePath, target.parent)
-            require(Files.exists(target, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(target)) {
+            require(Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) {
                 "Missing or unsafe hard-link target: $target"
             }
             Files.createDirectories(link.parent)
 
-            // Debian archives can contain repeated path records where a destination
-            // was already extracted as a regular file or another link. Replace only
-            // non-directory entries inside this private staging tree before linking.
+            // Debian archives can repeat paths. Replace only an existing non-directory
+            // entry in the private staging tree before creating the hard-link equivalent.
             if (Files.exists(link, LinkOption.NOFOLLOW_LINKS)) {
                 require(!Files.isDirectory(link, LinkOption.NOFOLLOW_LINKS)) {
                     "Cannot replace directory with Debian hard link: $link"
@@ -325,14 +330,35 @@ class SetupManager(private val context: Context) {
             }
 
             try {
-                Files.createLink(link, target)
+                if (nativeHardLinksSupported) {
+                    try {
+                        Os.link(target.toString(), link.toString())
+                        createdHardLinks++
+                        continue
+                    } catch (e: ErrnoException) {
+                        // A failed link syscall should not leave a partial destination
+                        // that would prevent the regular-file fallback from succeeding.
+                        Files.deleteIfExists(link)
+                        nativeHardLinksSupported = false
+                        log(
+                            "Native hard-link creation failed (errno ${e.errno}: ${Os.strerror(e.errno)}); " +
+                                "switching remaining entries to regular-file copies."
+                        )
+                    }
+                }
+
+                materializeHardLinkCopy(target, link)
+                copiedHardLinks++
             } catch (e: Exception) {
                 throw java.io.IOException(
-                    "Could not create Debian hard link '$link' -> '$target' " +
+                    "Could not create or copy Debian hard link '$link' from '$target' " +
                         "(${e.javaClass.simpleName}: ${e.message})",
                     e
                 )
             }
+        }
+        if (hardlinks.isNotEmpty()) {
+            log("Rootfs hard links: $createdHardLinks native, $copiedHardLinks copied.")
         }
         for ((link, target) in symlinks) {
             ensureNoSymlinkParents(stagePath, link.parent)
@@ -363,6 +389,50 @@ class SetupManager(private val context: Context) {
         }
         directoryModes.sortedByDescending { it.first.nameCount }.forEach { (path, mode) ->
             if (!Files.isSymbolicLink(path)) runCatching { Os.chmod(path.toString(), mode and 4095) }
+        }
+    }
+
+    private fun probeHardLinkSupport(stagePath: Path, log: (String) -> Unit): Boolean {
+        var source: Path? = null
+        var destination: Path? = null
+        return try {
+            source = Files.createTempFile(stagePath, ".hardlink-probe-", ".source")
+            destination = source.resolveSibling(source.fileName.toString() + ".link")
+            Files.write(source, byteArrayOf(0x4f, 0x43, 0x4f, 0x44, 0x45))
+            Os.link(source.toString(), destination.toString())
+
+            val sourceStat = Os.stat(source.toString())
+            val destinationStat = Os.stat(destination.toString())
+            check(sourceStat.st_dev == destinationStat.st_dev &&
+                sourceStat.st_ino == destinationStat.st_ino) {
+                "Native hard-link probe did not resolve to the same inode."
+            }
+            log("Native hard links are supported by the rootfs staging filesystem.")
+            true
+        } catch (e: ErrnoException) {
+            log(
+                "Native hard-link probe unavailable (errno ${e.errno}: ${Os.strerror(e.errno)}); " +
+                    "using regular-file copies for Debian hard links."
+            )
+            false
+        } catch (e: Exception) {
+            log(
+                "Native hard-link probe failed (${e.javaClass.simpleName}: ${e.message}); " +
+                    "using regular-file copies for Debian hard links."
+            )
+            false
+        } finally {
+            runCatching { destination?.let(Files::deleteIfExists) }
+            runCatching { source?.let(Files::deleteIfExists) }
+        }
+    }
+
+    private fun materializeHardLinkCopy(target: Path, link: Path) {
+        Files.copy(target, link)
+        val targetMode = Os.stat(target.toString()).st_mode and 4095
+        Os.chmod(link.toString(), targetMode)
+        check(Files.size(link) == Files.size(target)) {
+            "Copied Debian hard-link entry has an unexpected file size: $link"
         }
     }
 
