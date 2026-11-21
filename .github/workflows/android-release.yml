@@ -21,7 +21,7 @@ jobs:
         with:
           packages: platform-tools
       - name: Install Android SDK components
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
       - uses: gradle/actions/setup-gradle@v4
       - name: Check signing secrets
         env:
@@ -50,7 +50,9 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew --no-daemon assembleRelease
       - name: Verify APK signature
-        run: '"$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk'
+        run: '"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk'
+      - name: Verify 16 KB APK ZIP alignment
+        run: '"$ANDROID_HOME/build-tools/36.0.0/zipalign" -c -P 16 -v 4 app/build/outputs/apk/release/app-release.apk'
       - uses: actions/upload-artifact@v4
         with:
           name: opencode-mobile-${{ github.ref_name }}
