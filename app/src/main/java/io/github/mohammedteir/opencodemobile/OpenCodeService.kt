@@ -5,15 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.graphics.Bitmap
-import android.graphics.Canvas
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
-import android.graphics.drawable.Drawable
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -221,10 +218,6 @@ class OpenCodeService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this)
-        val appIcon = runCatching {
-            val drawable = packageManager.getApplicationIcon(packageName)
-            drawable.toNotificationBitmap()
-        }.getOrNull()
         return builder
             .setSmallIcon(R.drawable.ic_stat_opencode)
             // Keep the ongoing notification minimal: app identity and the Stop action only.
@@ -243,16 +236,6 @@ class OpenCodeService : Service() {
                 ).build()
             )
             .build()
-    }
-
-    private fun Drawable.toNotificationBitmap(): Bitmap {
-        val width = intrinsicWidth.coerceAtLeast(1).coerceAtMost(192)
-        val height = intrinsicHeight.coerceAtLeast(1).coerceAtMost(192)
-        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
-            val canvas = Canvas(bitmap)
-            setBounds(0, 0, width, height)
-            draw(canvas)
-        }
     }
 
     override fun onDestroy() {
