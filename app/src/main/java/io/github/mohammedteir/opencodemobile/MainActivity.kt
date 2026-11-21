@@ -685,9 +685,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 status.text = "OpenCode repaired · ready to start"
-                appendLog("OpenCode binary repair completed. Debian and user data were preserved.\\n")
+                appendLog("OpenCode binary repair completed. Debian and user data were preserved.\n")
             } catch (t: Throwable) {
-                appendLog("OpenCode repair failed: ${t.message}\\n")
+                appendLog("OpenCode repair failed: ${t.message}\n")
                 status.text = "OpenCode repair failed · inspect activity"
             } finally {
                 setBusy(false)
@@ -725,9 +725,9 @@ class MainActivity : ComponentActivity() {
             try {
                 withContext(Dispatchers.IO) { setup.restorePreviousOpenCode(::appendLog) }
                 status.text = "Previous OpenCode version restored"
-                appendLog("OpenCode rollback completed. Run Runtime diagnostics before starting the server.\\n")
+                appendLog("OpenCode rollback completed. Run Runtime diagnostics before starting the server.\n")
             } catch (t: Throwable) {
-                appendLog("OpenCode rollback failed: ${t.message}\\n")
+                appendLog("OpenCode rollback failed: ${t.message}\n")
                 status.text = "OpenCode rollback failed · inspect activity"
             } finally {
                 setBusy(false)
