@@ -561,7 +561,7 @@ class MainActivity : ComponentActivity() {
                     check(code == 0) { "PRoot diagnostic command failed (exit $code): $output" }
                     output
                 }
-                appendLog("Runtime and network diagnostics completed.\n${'\u0024'}result\n")
+                appendLog("Runtime and network diagnostics completed.\n${result}\n")
                 val dnsFailed = result.contains("DNS_FAIL")
                 val httpsFailed = result.contains("HTTPS_FAIL")
                 status.text = when {
