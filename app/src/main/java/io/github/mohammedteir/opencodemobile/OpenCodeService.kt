@@ -92,7 +92,7 @@ class OpenCodeService : Service() {
                             .getString(PREF_WORKSPACE_DIRECTORY, "/root/projects") ?: "/root/projects"
                         val workspace = if (
                             StorageAccessManager.isGuestWorkspaceAvailable(rootfs, configuredWorkspace)
-                        ) configuredWorkspace else "/root"
+                        ) configuredWorkspace else "/root/projects"
                         if (workspace != configuredWorkspace) {
                             appendLog("Saved workspace directory is unavailable; starting in /root.\n")
                         }
