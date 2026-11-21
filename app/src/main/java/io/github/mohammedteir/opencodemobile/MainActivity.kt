@@ -291,27 +291,17 @@ class MainActivity : ComponentActivity() {
             letterSpacing = 0.08f
         })
         rootCard.addView(text(
-            "Root is never required. Check availability only when you choose; Android will ask your root manager for authorization.",
+            "Not required for normal operation. Enable only for optional filesystem capabilities.",
             11f, "#A9A2A2", false
-        ).apply {
-            setPadding(0, dp(5), 0, dp(9))
-        })
-        rootStatus = text("Root status has not been checked.", 11f, "#A9A2A2", true).apply {
+        ).apply { setPadding(0, dp(5), 0, dp(7)) })
+        rootStatus = text("Not checked · standard PRoot mode is available", 11f, "#A9A2A2", true).apply {
             setPadding(0, dp(7), 0, dp(9))
         }
         rootCard.addView(rootStatus)
-        rootAccessButton = compactButton("Check root", false) { requestRootAccessCheck() }
-        rootDiagnosticsButton = compactButton("Diagnostics", false) { requestRootDiagnostics() }
+        rootAccessButton = compactButton("Check root availability", false) { requestRootAccessCheck() }
+        rootCard.addView(rootAccessButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42)))
+        rootDiagnosticsButton = compactButton("Run diagnostics", false) { requestRootDiagnostics() }
         rootHardLinkButton = compactButton("Test hard links", false) { requestRootHardLinkTest() }
-        rootCard.addView(rootAccessButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
-        val rootTools = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-        }
-        rootTools.addView(rootDiagnosticsButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(4) })
-        rootTools.addView(rootHardLinkButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(4) })
-        rootCard.addView(rootTools, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
-            topMargin = dp(7)
-        })
         rootHardLinkSwitch = CheckBox(this).apply {
             text = "Use root-assisted hard links during Debian installation"
             textSize = 11f
@@ -321,12 +311,32 @@ class MainActivity : ComponentActivity() {
             isChecked = RootAccessManager.isRootHardLinksEnabled(this@MainActivity)
             setOnCheckedChangeListener { _, checked ->
                 RootAccessManager.setRootHardLinksEnabled(this@MainActivity, checked)
-                appendLog(if (checked) "Root-assisted Debian hard links enabled by user.\n" else "Root-assisted Debian hard links disabled by user.\n")
+                appendLog(if (checked) "Root-assisted Debian hard links enabled by user.\\n" else "Root-assisted Debian hard links disabled by user.\\n")
             }
         }
-        rootCard.addView(rootHardLinkSwitch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        val rootAdvancedPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        val rootTools = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        rootTools.addView(rootDiagnosticsButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(4) })
+        rootTools.addView(rootHardLinkButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(4) })
+        rootAdvancedPanel.addView(rootTools, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
+        rootAdvancedPanel.addView(rootHardLinkSwitch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(5)
         })
+        val advancedToggle = text("Advanced tools  ↓", 11f, "#A9A2A2", true).apply {
+            setPadding(0, dp(12), 0, dp(2))
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                val expanded = rootAdvancedPanel.visibility != View.VISIBLE
+                rootAdvancedPanel.visibility = if (expanded) View.VISIBLE else View.GONE
+                text = if (expanded) "Advanced tools  ↑" else "Advanced tools  ↓"
+            }
+        }
+        rootCard.addView(advancedToggle)
+        rootCard.addView(rootAdvancedPanel)
         page.addView(rootCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             topMargin = dp(8)
         })
@@ -579,13 +589,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestRootDiagnostics() {
-        confirmRootOperation(
-            "Run root diagnostics?",
-            "This performs read-only checks of UID, SELinux status, app-private directory permissions, and filesystem capacity. It does not change system settings."
-        ) {
-            runRootOperation("Root diagnostics") {
-                RootAccessManager.runDiagnostics(cacheDir, File(filesDir, "rootfs"))
-            }
+        // Read-only diagnostics do not need a confirmation dialog.
+        runRootOperation("Root diagnostics") {
+            RootAccessManager.runDiagnostics(cacheDir, File(filesDir, "rootfs"))
         }
     }
 
@@ -624,11 +630,9 @@ class MainActivity : ComponentActivity() {
                 RootOperationLog.append(this@MainActivity, result.title, result.success, result.message + "\n" + result.output)
                 appendLog("[$label] ${result.message}\n")
                 if (result.output.isNotBlank()) appendLog(result.output + "\n")
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle(result.title)
-                    .setMessage(result.message + if (result.output.isNotBlank()) "\n\n" + result.output.take(6_000) else "")
-                    .setPositiveButton("OK", null)
-                    .show()
+                // Keep results inline; detailed command output stays in the collapsible activity log.
+                rootStatus.text = result.message
+                if (result.output.isNotBlank()) appendLog("[Details] ${result.output}\n")
             } catch (error: Exception) {
                 val message = error.message ?: "Unexpected root operation error."
                 rootStatus.text = message
