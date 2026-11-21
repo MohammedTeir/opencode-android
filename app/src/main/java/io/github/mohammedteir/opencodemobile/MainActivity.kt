@@ -559,16 +559,20 @@ class MainActivity : ComponentActivity() {
                             echo "DNS_SUMMARY ${'$'}dns_failures hostname(s) failed; inspect DNS configuration and active Android network"
                         fi
                     """.trimIndent()
+                    val inventory = RuntimeManager(this@MainActivity).inspect().report()
                     val p = ProotRunner.start(this@MainActivity, listOf("/bin/sh", "-c", script))
                     val output = p.inputStream.bufferedReader().readText().trim()
                     val code = p.waitFor()
                     check(code == 0) { "PRoot diagnostic command failed (exit $code): $output" }
-                    output
+                    "$inventory\n\n=== Network diagnostics ===\n$output"
                 }
                 appendLog("Runtime and network diagnostics completed.\n${result}\n")
+                val runtimeNeedsAttention = result.contains("[MISSING]") ||
+                    result.contains("[DEGRADED]") || result.contains("[INCOMPLETE]")
                 val dnsFailed = result.contains("DNS_FAIL")
                 val httpsFailed = result.contains("HTTPS_FAIL")
                 status.text = when {
+                    runtimeNeedsAttention -> "Runtime components need attention · inspect activity"
                     dnsFailed -> "PRoot works · DNS needs attention"
                     httpsFailed -> "PRoot and DNS work · HTTPS needs attention"
                     result.contains("HTTPS_SKIPPED") -> "PRoot works · DNS checked; HTTPS test unavailable"
