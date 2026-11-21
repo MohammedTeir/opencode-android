@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var setupButton: Button
     private lateinit var smokeButton: Button
     private lateinit var updateButton: Button
+    private lateinit var repairPackagesButton: Button
     private lateinit var rootAccessButton: Button
     private lateinit var rootDiagnosticsButton: Button
     private lateinit var rootHardLinkButton: Button
