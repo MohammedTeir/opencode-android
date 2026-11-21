@@ -51,9 +51,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     private lateinit var logs: TextView
     private lateinit var progress: ProgressBar
-    private lateinit var rootfsButton: Button
+    private lateinit var setupButton: Button
     private lateinit var smokeButton: Button
-    private lateinit var installButton: Button
     private lateinit var updateButton: Button
     private lateinit var rootAccessButton: Button
     private lateinit var rootDiagnosticsButton: Button
@@ -222,18 +221,15 @@ class MainActivity : ComponentActivity() {
         val stepsCard = card("#1B1919", 16, "#302B2B").apply {
             setPadding(dp(12), dp(4), dp(12), dp(4))
         }
-        rootfsButton = compactButton("Install") { runInstallRootfs() }
+        setupButton = compactButton("Set up") { runFullSetup() }
         smokeButton = compactButton("Check", false) { runSmokeTest() }
-        installButton = compactButton("Install") { runInstallOpenCode() }
         serverButton = compactButton("Launch") { startServerAndOpen() }
 
-        addStepRow(stepsCard, "1", "Debian environment", rootfsButton)
+        addStepRow(stepsCard, "1", "Debian + PRoot + OpenCode", setupButton)
         addStepDivider(stepsCard)
-        addStepRow(stepsCard, "2", "Runtime check", smokeButton)
+        addStepRow(stepsCard, "2", "Runtime diagnostics", smokeButton)
         addStepDivider(stepsCard)
-        addStepRow(stepsCard, "3", "OpenCode runtime", installButton)
-        addStepDivider(stepsCard)
-        addStepRow(stepsCard, "4", "Start workspace", serverButton)
+        addStepRow(stepsCard, "3", "Start workspace", serverButton)
         page.addView(stepsCard)
 
         val maintenance = LinearLayout(this).apply {
@@ -486,9 +482,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshButtons() {
-        rootfsButton.isEnabled = !setup.hasRootfs()
+        setupButton.isEnabled = !setup.isReady()
+        setupButton.text = if (setup.hasRootfs()) "Continue setup" else "Set up"
         smokeButton.isEnabled = setup.hasRootfs()
-        installButton.isEnabled = setup.hasRootfs() && !setup.isReady()
         serverButton.isEnabled = setup.isReady()
         updateButton.isEnabled = setup.isReady()
         if (setup.isReady()) status.text = "OpenCode V${setup.installedVersion()} installed · ready to start"
@@ -497,6 +493,30 @@ class MainActivity : ComponentActivity() {
         else status.text = "Ready to prepare your local environment"
     }
 
+    private fun runFullSetup() {
+        if (setup.isReady()) {
+            refreshButtons()
+            return
+        }
+        setBusy(true, "Preparing your complete OpenCode environment…")
+        lifecycleScope.launch {
+            try {
+                setup.installAll(
+                    log = ::appendLog,
+                    progress = { done, total -> showProgress(done, total, "Environment") },
+                    stage = { label -> runOnUiThread { status.text = label } }
+                )
+                status.text = "OpenCode installed · ready to start"
+                appendLog("Setup complete. No separate Termux, Debian, PRoot, or OpenCode installation is required.\n")
+            } catch (t: Throwable) {
+                appendLog("Setup stopped: ${t.message}\n")
+                status.text = "Setup paused — fix the issue and tap Continue setup"
+            } finally {
+                setBusy(false)
+                refreshButtons()
+            }
+        }
+    }
     private fun runInstallRootfs() {
         setBusy(true, "Installing Debian environment…")
         lifecycleScope.launch {
@@ -1077,9 +1097,8 @@ class MainActivity : ComponentActivity() {
 
     private fun setBusy(busy: Boolean, label: String? = null) {
         label?.let { status.text = it }
-        rootfsButton.isEnabled = !busy && !setup.hasRootfs()
+        setupButton.isEnabled = !busy && !setup.isReady()
         smokeButton.isEnabled = !busy && setup.hasRootfs()
-        installButton.isEnabled = !busy && setup.hasRootfs() && !setup.isReady()
         serverButton.isEnabled = !busy && setup.isReady()
         updateButton.isEnabled = !busy && setup.isReady()
         rootAccessButton.isEnabled = !busy
