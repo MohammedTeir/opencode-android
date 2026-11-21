@@ -9,7 +9,7 @@ import java.io.File
  * This class deliberately does not delete, overwrite, download, or repair anything.
  * It gives diagnostics a trustworthy component-level view before repair actions are added.
  */
-class RuntimeManager(context: Context) {
+class RuntimeManager(private val context: Context) {
     enum class State { READY, DEGRADED, MISSING, INCOMPLETE }
 
     data class Component(
