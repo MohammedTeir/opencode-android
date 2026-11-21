@@ -139,7 +139,7 @@ class SetupManager(private val context: Context) {
         postExtractFixes(rootfs, log)
         File(rootfs, "etc/apt/apt.conf.d/01-android-proot").apply {
             parentFile?.mkdirs()
-            writeText("APT::Sandbox::User \\"root\\";\\n")
+            writeText("APT::Sandbox::User \"root\";\n")
         }
         val script = """
             set -eu
