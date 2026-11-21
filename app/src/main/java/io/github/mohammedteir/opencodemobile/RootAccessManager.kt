@@ -90,7 +90,7 @@ object RootAccessManager {
             fi
             target_inode=$(stat -c %i $targetArg 2>/dev/null) || { rm -f $linkArg; exit 2; }
             link_inode=$(stat -c %i $linkArg 2>/dev/null) || { rm -f $linkArg; exit 3; }
-            if [ "$target_inode" != "$link_inode" ]; then
+            if [ "${'$'}target_inode" != "${'$'}link_inode" ]; then
                 rm -f $linkArg
                 exit 4
             fi
