@@ -69,28 +69,25 @@ class RuntimeManager(context: Context) {
             )
         }
 
-        val requiredRootfsFiles = listOf(
-            "bin/bash",
-            "usr/bin/env",
-            "etc/os-release",
-            "etc/apt"
-        )
-        val missingRootfs = requiredRootfsFiles.filterNot { File(rootfs, it).exists() }
-        val rootfsState = when {
-            !rootfs.isDirectory -> State.MISSING
-            missingRootfs.isNotEmpty() -> State.INCOMPLETE
-            else -> State.READY
+        val rootfsInspection = RootfsIntegrity.inspect(context, rootfs)
+        val rootfsState = when (rootfsInspection.state) {
+            RootfsIntegrity.State.VERIFIED -> State.READY
+            RootfsIntegrity.State.MISSING -> State.MISSING
+            RootfsIntegrity.State.INCOMPLETE -> State.INCOMPLETE
+            RootfsIntegrity.State.LEGACY, RootfsIntegrity.State.INVALID -> State.DEGRADED
         }
         components += Component(
             "debian",
             "Debian ARM64 root filesystem",
             rootfsState,
-            when {
-                !rootfs.isDirectory -> "Private Debian rootfs directory is not installed."
-                missingRootfs.isNotEmpty() -> "Required rootfs paths are missing: ${missingRootfs.joinToString()}."
-                else -> "Core Debian filesystem paths are present. This is a structural check, not a full filesystem checksum."
-            },
-            "Use the Debian repair/reinstall workflow after reviewing its impact. Never remove the existing rootfs automatically because it may contain user data."
+            rootfsInspection.detail,
+            when (rootfsInspection.state) {
+                RootfsIntegrity.State.MISSING -> "Run the one-tap Debian setup. Existing workspaces are not removed."
+                RootfsIntegrity.State.LEGACY -> "This is an older installation. Keep using it if it works; a future explicit migration can create a provenance record after verification."
+                RootfsIntegrity.State.INCOMPLETE -> "Do not delete the rootfs. Use the targeted recovery workflow after backing up any workspace stored inside Debian."
+                RootfsIntegrity.State.INVALID -> "Do not trust or overwrite this installation record automatically. Review the diagnostic details and back up projects before any recovery."
+                RootfsIntegrity.State.VERIFIED -> "No Debian recovery is currently indicated."
+            }
         )
 
         val openCode = File(rootfs, "usr/local/bin/opencode")
