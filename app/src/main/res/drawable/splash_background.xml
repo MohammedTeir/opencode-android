@@ -1,0 +1,12 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#101010"/>
+        </shape>
+    </item>
+    <item
+        android:drawable="@drawable/opencode_wordmark_dark"
+        android:gravity="center"
+        android:width="234dp"
+        android:height="42dp"/>
+</layer-list>
