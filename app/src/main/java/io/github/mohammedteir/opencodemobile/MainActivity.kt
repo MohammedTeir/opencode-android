@@ -88,7 +88,7 @@ class MainActivity : ComponentActivity() {
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
         val wordmark = ImageView(this).apply {
-            setImageResource(R.drawable.openc ode_wordmark_dark)
+            setImageResource(R.drawable.opencode_wordmark_dark)
             scaleType = ImageView.ScaleType.FIT_CENTER
             contentDescription = "OpenCode"
         }
