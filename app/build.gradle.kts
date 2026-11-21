@@ -9,11 +9,11 @@ val releaseKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
 
 android {
-    namespace = "com.example.opencodemobile"
+    namespace = "io.github.mohammedteir.opencodemobile"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.opencodemobile"
+        applicationId = "io.github.mohammedteir.opencodemobile"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

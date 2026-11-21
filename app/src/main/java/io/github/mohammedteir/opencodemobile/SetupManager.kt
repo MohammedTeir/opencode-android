@@ -1,4 +1,4 @@
-package com.example.opencodemobile
+package io.github.mohammedteir.opencodemobile
 
 import android.content.Context
 import android.system.Os
@@ -7,11 +7,11 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.json.JSONObject
 import org.tukaani.xz.XZInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
-import java.net.URL
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -29,9 +29,78 @@ class SetupManager(private val context: Context) {
 
     fun hasRootfs() = File(rootfs, "bin/bash").exists()
     fun hasOpenCodeBinary() = File(rootfs, "usr/local/bin/opencode").canExecute()
+    fun installedVersion(): String? = File(context.filesDir, "setup_ready").takeIf { it.exists() }?.readText()?.trim()?.takeIf { it.isNotEmpty() }
     fun isReady() = hasOpenCodeBinary() && runCatching {
-        File(context.filesDir, "setup_ready").readText().trim() == OPENCODE_VERSION
+        installedVersion() != null
     }.getOrDefault(false)
+    fun isNewerThanInstalled(update: OpenCodeUpdate): Boolean {
+        val current = installedVersion()?.let(::parseVersion) ?: return false
+        return compareVersions(update.version, current) > 0
+    }
+
+    suspend fun checkForUpdate(): OpenCodeUpdate = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(LATEST_RELEASE_URL)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "OpenCode-Mobile")
+            .build()
+        http.newCall(request).execute().use { response ->
+            check(response.isSuccessful) { "Update check failed: HTTP ${response.code}" }
+            val release = JSONObject(response.body?.string().orEmpty())
+            check(!release.optBoolean("draft") && !release.optBoolean("prerelease")) { "Latest release is not stable." }
+            val tag = release.optString("tag_name")
+            val version = parseVersion(tag.removePrefix("v"))
+            check(version != null) { "Latest release has an invalid version tag." }
+            val assets = release.optJSONArray("assets") ?: error("Latest release has no assets.")
+            var asset: JSONObject? = null
+            for (index in 0 until assets.length()) {
+                val candidate = assets.optJSONObject(index) ?: continue
+                if (candidate.optString("name") == OPENCODE_ASSET_NAME) {
+                    asset = candidate
+                    break
+                }
+            }
+            val selected = asset ?: error("Latest release has no ARM64 OpenCode asset.")
+            val url = selected.optString("browser_download_url")
+            check(url.startsWith("https://github.com/")) { "Update asset is not hosted on GitHub." }
+            val digest = selected.optString("digest").removePrefix("sha256:").lowercase()
+            check(digest.matches(Regex("[0-9a-f]{64}"))) { "Latest release has no valid SHA-256 digest." }
+            OpenCodeUpdate(version, url, digest)
+        }
+    }
+
+    suspend fun installOpenCodeUpdate(update: OpenCodeUpdate, log: (String) -> Unit, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
+        check(hasRootfs() && hasOpenCodeBinary()) { "Install OpenCode before updating it." }
+        val installed = installedVersion()?.let(::parseVersion) ?: error("Installed OpenCode version is unknown.")
+        check(compareVersions(update.version, installed) > 0) { "OpenCode is already up to date." }
+        val archive = File(context.cacheDir, "opencode-${update.displayVersion}.tar.gz")
+        log("Downloading OpenCode V${update.version} ARM64 update…")
+        download(update.url, archive, progress)
+        try {
+            log("Checking update SHA-256…")
+            check(sha256(archive) == update.sha256) { "Update checksum mismatch; download removed." }
+            val target = File(rootfs, "usr/local/bin/opencode")
+            val staging = File(rootfs, ".opencode-update-${System.currentTimeMillis()}")
+            val backup = File(rootfs, "usr/local/bin/opencode.previous")
+            try {
+                installOpenCodeTar(archive, staging)
+                check(staging.canExecute()) { "Downloaded update did not contain an executable OpenCode binary." }
+                Files.move(target.toPath(), backup.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                try {
+                    Files.move(staging.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                } catch (t: Throwable) {
+                    Files.move(backup.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    throw t
+                }
+                File(context.filesDir, "setup_ready").writeText("${update.version}\n")
+                log("OpenCode V${update.displayVersion} installed. Previous binary kept at usr/local/bin/opencode.previous.")
+            } finally {
+                if (staging.exists()) staging.delete()
+            }
+        } finally {
+            archive.delete()
+        }
+    }
 
     suspend fun installRootfs(log: (String) -> Unit, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
         require(!hasRootfs()) { "A Debian rootfs already exists." }
@@ -71,7 +140,7 @@ class SetupManager(private val context: Context) {
             error("OpenCode checksum mismatch; download removed.")
         }
         try {
-            installOpenCodeTar(archive)
+            installOpenCodeTar(archive, File(rootfs, "usr/local/bin/opencode"))
         } finally {
             archive.delete()
         }
@@ -128,8 +197,7 @@ class SetupManager(private val context: Context) {
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    private fun installOpenCodeTar(archive: File) {
-        val target = File(rootfs, "usr/local/bin/opencode")
+    private fun installOpenCodeTar(archive: File, target: File) {
         target.parentFile?.mkdirs()
         GZIPInputStream(archive.inputStream().buffered()).use { gzip ->
             TarArchiveInputStream(gzip).use { tar ->
@@ -282,6 +350,26 @@ class SetupManager(private val context: Context) {
         const val ROOTFS_SHA256 = "125416b51b1272db7abd932bc7cc5f286fd29a190cb5a1b18460500f5448d5fc"
         const val OPENCODE_URL = "https://github.com/anomalyco/opencode/releases/download/v2.3.2/opencode-linux-arm64.tar.gz"
         const val OPENCODE_SHA256 = "9d10185acdb72336e086e699ca363a6065f410fd3c1caed0dc8046e95ac06ccb"
+        const val LATEST_RELEASE_URL = "https://api.github.com/repos/anomalyco/opencode/releases/latest"
+        const val OPENCODE_ASSET_NAME = "opencode-linux-arm64.tar.gz"
+
+        data class OpenCodeUpdate(val version: List<Int>, val url: String, val sha256: String) {
+            val displayVersion: String get() = version.joinToString(".")
+        }
+
+        private fun parseVersion(value: String): List<Int>? {
+            val parts = value.substringBefore('-').split('.')
+            if (parts.size !in 2..3 || parts.any { it.isEmpty() || !it.all(Char::isDigit) }) return null
+            return parts.map(String::toIntOrNull).takeIf { it.all { number -> number != null } }?.map { it!! }
+        }
+
+        private fun compareVersions(left: List<Int>, right: List<Int>): Int {
+            for (index in 0 until maxOf(left.size, right.size)) {
+                val comparison = (left.getOrElse(index) { 0 }).compareTo(right.getOrElse(index) { 0 })
+                if (comparison != 0) return comparison
+            }
+            return 0
+        }
 
         private val DEFAULT_CONFIG = """
             {

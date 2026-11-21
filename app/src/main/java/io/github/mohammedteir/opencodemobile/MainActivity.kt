@@ -1,7 +1,8 @@
-package com.example.opencodemobile
+package io.github.mohammedteir.opencodemobile
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -42,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var rootfsButton: Button
     private lateinit var smokeButton: Button
     private lateinit var installButton: Button
+    private lateinit var updateButton: Button
     private lateinit var serverButton: Button
     private lateinit var content: LinearLayout
     private var webView: WebView? = null
@@ -82,6 +84,7 @@ class MainActivity : ComponentActivity() {
         smokeButton = button("2. Run M1 proot smoke test") { runSmokeTest() }
         installButton = button("3. Install OpenCode V2.3.2 + packages") { runInstallOpenCode() }
         serverButton = button("4. Start server and open WebView") { startServerAndOpen() }
+        updateButton = button("5. Check for OpenCode updates") { runCheckForUpdates() }
         val warning = TextView(this).apply {
             text = "This prototype uses a pinned Debian ARM64 rootfs and OpenCode V2.3.2. It does not bind Android storage. OpenCode actions use conservative prompts. Keep the server notification visible while it runs."
             textSize = 13f
@@ -99,7 +102,7 @@ class MainActivity : ComponentActivity() {
         content.addView(title)
         content.addView(status)
         content.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6)))
-        listOf(rootfsButton, smokeButton, installButton, serverButton).forEach {
+        listOf(rootfsButton, smokeButton, installButton, serverButton, updateButton).forEach {
             content.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)).apply { topMargin = dp(5) })
         }
         val batteryButton = button("5. Battery optimization settings") { requestBatteryExemption() }
@@ -120,8 +123,9 @@ class MainActivity : ComponentActivity() {
         smokeButton.isEnabled = setup.hasRootfs()
         installButton.isEnabled = setup.hasRootfs() && !setup.isReady()
         serverButton.isEnabled = setup.isReady()
-        if (setup.isReady()) status.text = "OpenCode V2.3.2 installed · ready to start"
-        else if (setup.hasRootfs() && setup.hasOpenCodeBinary()) status.text = "Existing OpenCode install · V2.3.2 upgrade required"
+        updateButton.isEnabled = setup.isReady()
+        if (setup.isReady()) status.text = "OpenCode V${setup.installedVersion()} installed · ready to start"
+        else if (setup.hasRootfs() && setup.hasOpenCodeBinary()) status.text = "Existing OpenCode install · version metadata missing"
         else if (setup.hasRootfs()) status.text = "Debian installed · run the M1 smoke test"
     }
 
@@ -180,6 +184,58 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun runCheckForUpdates() {
+        if (OpenCodeService.isRunning) {
+            Toast.makeText(this, "Stop the OpenCode server before checking for updates", Toast.LENGTH_LONG).show()
+            return
+        }
+        setBusy(true, "Checking GitHub for OpenCode updates…")
+        lifecycleScope.launch {
+            try {
+                val update = withContext(Dispatchers.IO) { setup.checkForUpdate() }
+                val installed = setup.installedVersion() ?: "unknown"
+                if (!setup.isNewerThanInstalled(update)) {
+                    status.text = "OpenCode V$installed is up to date"
+                    appendLog("No newer stable OpenCode ARM64 release found. Latest checked: V${update.displayVersion}.\n")
+                } else {
+                    appendLog("OpenCode V${update.displayVersion} is available (installed: V$installed).\n")
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("OpenCode update available")
+                        .setMessage("Install OpenCode V${update.displayVersion}? The current binary will be backed up before replacement.")
+                        .setNegativeButton("Not now", null)
+                        .setPositiveButton("Install update") { _, _ -> runInstallUpdate(update) }
+                        .show()
+                }
+            } catch (t: Throwable) {
+                appendLog("Update check failed: ${t.message}\n")
+                status.text = "Update check failed"
+            } finally {
+                setBusy(false)
+                refreshButtons()
+            }
+        }
+    }
+
+    private fun runInstallUpdate(update: SetupManager.OpenCodeUpdate) {
+        if (OpenCodeService.isRunning) {
+            Toast.makeText(this, "Stop the OpenCode server before installing an update", Toast.LENGTH_LONG).show()
+            return
+        }
+        setBusy(true, "Installing OpenCode V${update.displayVersion}…")
+        lifecycleScope.launch {
+            try {
+                setup.installOpenCodeUpdate(update, ::appendLog) { done, total -> showProgress(done, total, "OpenCode update") }
+                status.text = "OpenCode V${update.displayVersion} installed · ready to start"
+            } catch (t: Throwable) {
+                appendLog("OpenCode update failed: ${t.message}\n")
+                status.text = "Update failed; previous binary retained"
+            } finally {
+                setBusy(false)
+                refreshButtons()
+            }
+        }
+    }
+
     private fun requestBatteryExemption() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
         val powerManager = getSystemService(PowerManager::class.java)
@@ -218,7 +274,7 @@ class MainActivity : ComponentActivity() {
                             val json = response.body?.string().orEmpty()
                             if (response.isSuccessful && contentType.contains("application/json", ignoreCase = true) && json.isNotBlank()) {
                                 val info = org.json.JSONObject(json)
-                                if (info.optString("version") == SetupManager.OPENCODE_VERSION && info.optLong("pid") > 0L) {
+                                if (info.optString("version") == setup.installedVersion() && info.optLong("pid") > 0L) {
                                     return@withContext true
                                 }
                             }
@@ -233,7 +289,7 @@ class MainActivity : ComponentActivity() {
                 showWebView()
             } else {
                 status.text = "Server did not become ready in 60 seconds"
-                appendLog("Authenticated /api/info did not report OpenCode V2.3.2. Check logs and confirm the pinned version starts under PRoot.\n")
+                appendLog("Authenticated /api/info did not report the installed OpenCode version. Check logs and confirm the server starts under PRoot.\n")
                 Toast.makeText(this@MainActivity, "Server startup timed out", Toast.LENGTH_LONG).show()
             }
         }
@@ -314,6 +370,7 @@ class MainActivity : ComponentActivity() {
         smokeButton.isEnabled = !busy && setup.hasRootfs()
         installButton.isEnabled = !busy && setup.hasRootfs() && !setup.isReady()
         serverButton.isEnabled = !busy && setup.isReady()
+        updateButton.isEnabled = !busy && setup.isReady()
         progress.visibility = if (busy) View.VISIBLE else View.GONE
         if (busy) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

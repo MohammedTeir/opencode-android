@@ -1,4 +1,4 @@
-package com.example.opencodemobile
+package io.github.mohammedteir.opencodemobile
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -44,7 +44,8 @@ class OpenCodeService : Service() {
         }
         val installedVersion = runCatching { File(filesDir, "setup_ready").readText().trim() }.getOrNull()
         val binaryReady = File(filesDir, "rootfs/usr/local/bin/opencode").canExecute()
-        if (installedVersion == SetupManager.OPENCODE_VERSION && binaryReady) {
+        if (!installedVersion.isNullOrBlank() && binaryReady) {
+            isRunning = true
             stopping = false
             if (wakeLock?.isHeld != true) {
                 wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
@@ -53,7 +54,7 @@ class OpenCodeService : Service() {
             }
             if (process?.isAlive != true) startServer()
         } else {
-            appendLog("OpenCode V${SetupManager.OPENCODE_VERSION} is not installed; server not started.\n")
+            appendLog("OpenCode is not installed; server not started.\n")
             stopSelf()
         }
         return START_STICKY
@@ -198,13 +199,15 @@ class OpenCodeService : Service() {
 
     override fun onDestroy() {
         stopServer()
+        isRunning = false
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        const val ACTION_STOP = "com.example.opencodemobile.STOP_SERVER"
+        const val ACTION_STOP = "io.github.mohammedteir.opencodemobile.STOP_SERVER"
+        @Volatile var isRunning: Boolean = false
         private const val TAG = "OpenCodeMobile"
         private const val CHANNEL_ID = "opencode_server"
         private const val NOTIFICATION_ID = 4096

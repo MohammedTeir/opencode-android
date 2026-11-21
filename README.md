@@ -27,7 +27,9 @@ The debug APK output is `app/build/outputs/apk/debug/app-debug.apk`. Install it 
 
 `.github/workflows/android-ci.yml` builds a debug APK on pushes to `main` and pull requests. `.github/workflows/android-release.yml` builds a signed release APK and creates a GitHub Release when a `v*` tag is pushed.
 
-Release signing is configured with these repository Actions secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. The keystore is supplied to `ANDROID_KEYSTORE_BASE64` as one-line Base64; the configured key alias is `opencode-release`. The keystore and recovery values are backed up separately from this repository. Never commit a keystore, Base64 keystore content, or signing passwords. If the secrets are missing, the release workflow intentionally stops before signing. The project currently uses the prototype application ID `com.example.opencodemobile`; select a permanent package ID before public distribution.
+Release signing is configured with these repository Actions secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`. The keystore is supplied to `ANDROID_KEYSTORE_BASE64` as one-line Base64; the configured key alias is `opencode-release`. The keystore and recovery values are backed up separately from this repository. Never commit a keystore, Base64 keystore content, or signing passwords. If the secrets are missing, the release workflow intentionally stops before signing. The permanent application ID is `io.github.mohammedteir.opencodemobile`.
+
+After the pinned initial install, the setup screen can check the official OpenCode GitHub releases API for a newer stable ARM64 release. Updates require explicit user approval, accept only the exact `opencode-linux-arm64.tar.gz` asset hosted on GitHub, verify its SHA-256 digest, and keep the previous binary at `usr/local/bin/opencode.previous` during replacement. The update check does not downgrade the installed version and does not run while the OpenCode server is active.
 
 ## Pinned inputs
 

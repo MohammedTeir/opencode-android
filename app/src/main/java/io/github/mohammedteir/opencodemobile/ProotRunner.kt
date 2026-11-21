@@ -1,4 +1,4 @@
-package com.example.opencodemobile
+package io.github.mohammedteir.opencodemobile
 
 import android.content.Context
 import java.io.File
