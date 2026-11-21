@@ -2,41 +2,46 @@ package io.github.mohammedteir.opencodemobile
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.os.Build
+import android.net.Network
 import java.io.File
 import java.net.InetAddress
 import java.nio.file.Files
 import java.nio.file.LinkOption
-import java.util.regex.Pattern
 
 /**
- * Refreshes the Debian resolver configuration using Android's per-network resolver.
+ * Keeps Debian's normal libc resolver pointed at DNS servers advertised by
+ * Android's active network. This is deliberately provider-agnostic: Debian,
+ * Node.js/Bun, Git, APT, MCP clients and custom API endpoints all use the same
+ * resolver configuration.
  *
- * Android's resolver can succeed even when DNS packets sent directly by a PRoot
- * process cannot reach the configured DNS server. A managed /etc/hosts block
- * provides a fallback for common OpenCode provider API endpoints. Entries are
- * refreshed before each PRoot process launch; no provider IP is hardcoded.
+ * Android's Network.getAllByName is used only for diagnostics/bootstrap tasks
+ * that explicitly need Android-side resolution. It is not used to maintain a
+ * hardcoded provider /etc/hosts allowlist.
  */
 object AndroidDnsBootstrap {
-    private const val MARKER_START = "# OPENCODE-MOBILE-ANDROID-DNS-START"
-    private const val MARKER_END = "# OPENCODE-MOBILE-ANDROID-DNS-END"
-
-    private val providerHosts = listOf(
-        // Google Gemini
-        "generativelanguage.googleapis.com",
-        // OpenAI
-        "api.openai.com",
-        // Anthropic
-        "api.anthropic.com",
-        // Common OpenAI-compatible providers
-        "openrouter.ai",
-        "api.groq.com",
-        "api.mistral.ai",
-        "api.cohere.ai",
-        "api.deepseek.com",
-        "api.x.ai",
-        // GitHub is used by common agent/tool workflows
-        "api.github.com"
+    data class Snapshot(
+        val networkAvailable: Boolean,
+        val dnsServers: List<String>,
+        val privateDnsActive: Boolean,
+        val privateDnsServerName: String?
     )
+
+    fun snapshot(context: Context): Snapshot {
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network: Network? = runCatching { connectivity?.activeNetwork }.getOrNull()
+        val properties = runCatching { connectivity?.getLinkProperties(network) }.getOrNull()
+        val dnsServers = properties?.dnsServers.orEmpty()
+            .mapNotNull { address -> address.hostAddress?.substringBefore('%') }
+            .filter(::isUsableDnsAddress)
+            .distinct()
+        return Snapshot(
+            networkAvailable = network != null,
+            dnsServers = dnsServers,
+            privateDnsActive = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && properties?.isPrivateDnsActive == true,
+            privateDnsServerName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) properties?.privateDnsServerName else null
+        )
+    }
 
     fun refresh(context: Context, rootfs: File, log: (String) -> Unit = {}) {
         val etc = File(rootfs, "etc").toPath()
@@ -45,68 +50,52 @@ object AndroidDnsBootstrap {
             return
         }
 
-        val connectivity = runCatching {
-            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        }.getOrNull()
-        val network = runCatching { connectivity?.activeNetwork }.getOrNull()
-        val linkProperties = runCatching { connectivity?.getLinkProperties(network) }.getOrNull()
-        val dnsServers = linkProperties?.dnsServers.orEmpty()
-            .map { it.hostAddress.substringBefore('%') }
-            .filter(::isUsableDnsAddress)
-            .distinct()
-
-        if (dnsServers.isNotEmpty()) {
-            val resolv = etc.resolve("resolv.conf")
-            runCatching {
-                if (Files.isSymbolicLink(resolv)) Files.delete(resolv)
-                Files.write(
-                    resolv,
-                    (dnsServers.joinToString("\n") { "nameserver $it" } + "\n")
-                        .toByteArray(Charsets.UTF_8)
-                )
-            }.onFailure {
-                log("Android DNS refresh could not update resolv.conf: ${it.message}")
-            }
+        val state = snapshot(context)
+        val resolv = etc.resolve("resolv.conf")
+        if (state.dnsServers.isEmpty()) {
+            log(
+                "Android DNS refresh: no usable DNS servers were advertised by the active network; " +
+                    "existing Debian resolver configuration was preserved."
+            )
+            return
         }
 
-        val resolved = providerHosts.flatMap { host ->
-            runCatching {
-                val addresses = if (network != null) network.getAllByName(host)
-                    else InetAddress.getAllByName(host)
-                addresses.map { address -> address.hostAddress.substringBefore('%') to host }
-            }.getOrElse {
-                log("Android resolver could not resolve $host: ${it.message}")
-                emptyList()
-            }
-        }.distinct()
-
-        val hosts = etc.resolve("hosts")
         runCatching {
-            if (Files.isSymbolicLink(hosts)) Files.delete(hosts)
-            val existing = if (Files.exists(hosts, LinkOption.NOFOLLOW_LINKS)) {
-                String(Files.readAllBytes(hosts), Charsets.UTF_8)
-            } else {
-                "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n"
+            if (Files.isSymbolicLink(resolv)) Files.delete(resolv)
+            val content = buildString {
+                append("# Managed by OpenCode Mobile from Android active-network LinkProperties\n")
+                state.dnsServers.forEach { append("nameserver ").append(it).append('\n') }
+                append("options timeout:2 attempts:2 rotate\n")
             }
-            val markerPattern = "(?s)\\n?" + Pattern.quote(MARKER_START) +
-                ".*?" + Pattern.quote(MARKER_END) + "\\n?"
-            val clean = existing.replace(Regex(markerPattern), "\n")
-            val block = buildString {
-                append(MARKER_START).append('\n')
-                resolved.forEach { (address, host) ->
-                    append(address).append(' ').append(host).append('\n')
-                }
-                append(MARKER_END).append('\n')
-            }
-            Files.write(hosts, (clean.trimEnd() + "\n" + block).toByteArray(Charsets.UTF_8))
+            Files.write(resolv, content.toByteArray(Charsets.UTF_8))
         }.onFailure {
-            log("Android DNS refresh could not update /etc/hosts: ${it.message}")
+            log("Android DNS refresh could not update resolv.conf: ${it.message}")
+            return
         }
 
         log(
-            "Android DNS refresh: ${dnsServers.size} upstream DNS server(s), " +
-                "${resolved.size} provider/API address record(s)."
+            "Android DNS configuration refreshed for all Debian processes: " +
+                "${state.dnsServers.size} active-network DNS server(s); " +
+                "Private DNS ${if (state.privateDnsActive) "enabled" else "not reported as active"}" +
+                (state.privateDnsServerName?.let { " ($it)" } ?: "") + "."
         )
+        if (state.privateDnsActive) {
+            log(
+                "Note: Android Private DNS may use encrypted DNS internally. Direct DNS packets from " +
+                    "Linux userspace are not guaranteed to inherit Android's Private DNS transport."
+            )
+        }
+    }
+
+    /**
+     * Diagnostic helper: resolve a hostname using Android's active network.
+     * It is intentionally not used to populate /etc/hosts for a provider list.
+     */
+    fun resolveOnActiveNetwork(context: Context, hostname: String): List<String> {
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = connectivity?.activeNetwork
+        val addresses = if (network != null) network.getAllByName(hostname) else InetAddress.getAllByName(hostname)
+        return addresses.map { it.hostAddress.substringBefore('%') }.distinct()
     }
 
     private fun isUsableDnsAddress(address: String): Boolean = runCatching {

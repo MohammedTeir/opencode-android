@@ -514,18 +514,62 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun runSmokeTest() {
-        setBusy(true, "Checking the Linux runtime…")
+        setBusy(true, "Checking Linux runtime and network…")
         lifecycleScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    val p = ProotRunner.start(this@MainActivity, listOf("/bin/echo", "hi"))
+                    val script = """
+                        set +e
+                        echo "=== PRoot runtime ==="
+                        echo "PRoot command execution: OK"
+                        echo
+                        echo "=== DNS resolution (system resolver; no provider allowlist) ==="
+                        dns_failures=0
+                        for host in generativelanguage.googleapis.com api.openai.com api.anthropic.com github.com deb.debian.org; do
+                            if getent ahosts "${'$'}host" >/dev/null 2>&1; then
+                                echo "DNS_OK ${'$'}host"
+                            else
+                                echo "DNS_FAIL ${'$'}host"
+                                dns_failures=$((dns_failures + 1))
+                            fi
+                        done
+                        echo
+                        echo "=== HTTPS connectivity ==="
+                        if command -v curl >/dev/null 2>&1; then
+                            for url in https://generativelanguage.googleapis.com/ https://api.openai.com/ https://github.com/; do
+                                result=$(curl -sS -o /dev/null -w "HTTP %{http_code}" --connect-timeout 8 --max-time 15 "${'$'}url" 2>&1)
+                                rc=$?
+                                if [ "${'$'}rc" -eq 0 ]; then
+                                    echo "HTTPS_OK ${'$'}url ${'$'}result"
+                                else
+                                    echo "HTTPS_FAIL ${'$'}url (curl exit ${'$'}rc): ${'$'}result"
+                                fi
+                            done
+                        else
+                            echo "HTTPS_SKIPPED curl is not installed yet; rerun this check after package installation."
+                        fi
+                        echo
+                        if [ "${'$'}dns_failures" -eq 0 ]; then
+                            echo "DNS_SUMMARY all tested hostnames resolved"
+                        else
+                            echo "DNS_SUMMARY ${'$'}dns_failures hostname(s) failed; inspect DNS configuration and active Android network"
+                        fi
+                    """.trimIndent()
+                    val p = ProotRunner.start(this@MainActivity, listOf("/bin/sh", "-c", script))
                     val output = p.inputStream.bufferedReader().readText().trim()
                     val code = p.waitFor()
-                    check(code == 0 && output.lineSequence().any { it == "hi" }) { "Expected `hi`, got exit $code: $output" }
+                    check(code == 0) { "PRoot diagnostic command failed (exit $code): $output" }
                     output
                 }
-                appendLog("Runtime check passed: PRoot printed $result.\n")
-                status.text = "Runtime check passed · install OpenCode next"
+                appendLog("Runtime and network diagnostics completed.\n${result}\n")
+                val dnsFailed = result.contains("DNS_FAIL")
+                val httpsFailed = result.contains("HTTPS_FAIL")
+                status.text = when {
+                    dnsFailed -> "PRoot works · DNS needs attention"
+                    httpsFailed -> "PRoot and DNS work · HTTPS needs attention"
+                    result.contains("HTTPS_SKIPPED") -> "PRoot works · DNS checked; HTTPS test unavailable"
+                    else -> "PRoot and network checks passed"
+                }
             } catch (t: Throwable) {
                 appendLog("Runtime check failed: ${t.message}\n")
                 status.text = "Runtime check failed — inspect activity"
