@@ -1,0 +1,11 @@
+.gradle/
+**/build/
+local.properties
+research/
+*.apk
+*.aab
+*.jks
+*.keystore
+*.p12
+*.pfx
+.DS_Store
