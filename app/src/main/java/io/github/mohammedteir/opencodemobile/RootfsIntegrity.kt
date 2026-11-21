@@ -90,7 +90,7 @@ object RootfsIntegrity {
 
         return try {
             val properties = Properties().apply {
-                manifest.inputStream().use(::load)
+                manifest.inputStream().use { input -> load(input) }
             }
             val expected = mapOf(
                 "format" to FORMAT_VERSION,
@@ -115,7 +115,7 @@ object RootfsIntegrity {
                     "Debian Bookworm ARM64 installation record matches the pinned archive SHA-256 and active rootfs path. Critical filesystem paths are present. This does not checksum every mutable file."
                 )
             }
-        } catch (t: Throwable) {
+        } catch (t: Exception) {
             Inspection(State.INVALID, "Could not read Debian installation record: ${t.message ?: t.javaClass.simpleName}.")
         }
     }
