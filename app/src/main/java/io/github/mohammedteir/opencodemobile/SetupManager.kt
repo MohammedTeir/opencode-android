@@ -118,6 +118,7 @@ class SetupManager(private val context: Context) {
                 throw t
             }
             File(context.filesDir, "setup_ready").writeText("${update.version}\n")
+            pruneOpenCodeArchiveCache(archive)
             log("OpenCode V${update.displayVersion} installed. Previous binary kept at usr/local/bin/opencode.previous.")
         } finally {
             if (staging.exists()) staging.delete()
@@ -177,6 +178,7 @@ class SetupManager(private val context: Context) {
         val archive = File(downloadDirectory(), "opencode-${OPENCODE_VERSION}-linux-arm64.tar.gz")
         downloadVerified(OPENCODE_URL, archive, OPENCODE_SHA256, progress) { log(it) }
         installOpenCodeTar(archive, File(rootfs, "usr/local/bin/opencode"))
+        pruneOpenCodeArchiveCache(archive)
         postExtractFixes(rootfs, log)
         writeOpenCodeDefaults()
         log("Installing Git, ripgrep, curl, CA certificates and procps…")
@@ -196,6 +198,14 @@ class SetupManager(private val context: Context) {
         File(context.filesDir, "downloads").apply { check(isDirectory || mkdirs()) {
             "Could not create persistent download cache."
         } }
+
+    private fun pruneOpenCodeArchiveCache(keep: File) {
+        val cache = keep.parentFile ?: return
+        val archivePattern = Regex("opencode-\\d+(?:\\.\\d+){1,2}-linux-arm64\\.tar\\.gz(?:\\.part(?:\\.properties)?)?")
+        cache.listFiles()
+            ?.filter { it.isFile && archivePattern.matches(it.name) && it.absoluteFile != keep.absoluteFile }
+            ?.forEach { it.delete() }
+    }
 
     private fun downloadVerified(
         url: String,
