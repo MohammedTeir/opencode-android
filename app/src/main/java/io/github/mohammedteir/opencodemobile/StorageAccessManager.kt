@@ -1,6 +1,5 @@
 package io.github.mohammedteir.opencodemobile
 
-import android.content.Context
 import android.os.Build
 import android.os.Environment
 import java.io.File
@@ -13,17 +12,14 @@ import java.nio.file.Files
 object StorageAccessManager {
     fun isSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
-    fun hasAccess(context: Context): Boolean {
-        if (!isSupported()) return false
-        return runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
-    }
-
     @Suppress("DEPRECATION")
-    fun sharedStorageDirectory(context: Context): File? {
-        if (!hasAccess(context)) return null
+    fun sharedStorageDirectory(): File? {
+        if (!isSupported()) return null
+        val hasAllFilesAccess = runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
+        if (!hasAllFilesAccess) return null
         return runCatching { Environment.getExternalStorageDirectory() }
             .getOrNull()
-            ?.takeIf { it.isDirectory && it.canRead() }
+            ?.takeIf { it.isDirectory && it.canRead() && it.canWrite() }
     }
 
     /** Create safe, app-owned bind destinations and refuse symlink collisions. */
