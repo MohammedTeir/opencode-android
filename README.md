@@ -1,13 +1,13 @@
 # OpenCode Mobile
 
-A native Android proof of concept that packages ARM64 PRoot, installs a Debian Bookworm ARM64 root filesystem and the original OpenCode V2 CLI on first run, starts the V2 web/API server in a foreground service, and displays its loopback web UI in an authenticated WebView. It has no Termux dependency. It is not yet release-ready or validated on a physical Android device.
+A native Android app that packages ARM64 PRoot, installs a Debian Bookworm ARM64 root filesystem and the original OpenCode V2 CLI on first run, starts the V2 web/API server in a foreground service, and displays its loopback web UI in an authenticated WebView. It is a single installable APK and has no Termux dependency. The first-run installer performs Debian setup, a real PRoot execution check, OpenCode installation, and required Linux package installation in one resumable action. Large Debian and OpenCode payloads are downloaded into app-private storage and SHA-256 verified rather than inflating every APK release.
 
 ## Scope and milestones
 
 The app implements M1–M4 plus the requested V2 migration and CI/release workflows. Later product polish remains out of scope until M1–M4 pass on a real phone.
 
-1. **M1:** install Debian and run `/bin/echo hi` through the bundled PRoot executable.
-2. **M2:** download and checksum-verify OpenCode V2.3.2 ARM64, install Git/ripgrep/curl/CA certificates/procps, and create V2-native permission defaults.
+1. **M1:** install Debian and run a real command through the PRoot executable bundled in the APK.
+2. **M2:** download and checksum-verify OpenCode V2.3.2 ARM64, install Git/ripgrep/curl/CA certificates/procps, and create V2-native permission defaults. The one-tap installer resumes from completed stages.
 3. **M3:** run `opencode serve` in an Android foreground service, bind only to `127.0.0.1`, keep a random 256-bit password in private app storage, and pass it through `OPENCODE_PASSWORD`.
 4. **M4:** require authenticated JSON from `/api/info` reporting V2.3.2, then load the server UI in an authenticated WebView. Navigation is limited to `http://127.0.0.1:4096`.
 

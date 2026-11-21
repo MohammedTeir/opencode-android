@@ -125,6 +125,53 @@ class SetupManager(private val context: Context) {
         }
     }
 
+    /**
+     * Runs the complete first-run installation in one resumable operation.
+     * Completed stages are reused; recoverable files are retained after failures.
+     */
+    suspend fun installAll(
+        log: (String) -> Unit,
+        progress: (Long, Long) -> Unit,
+        stage: (String) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        check(!isReady()) { "OpenCode is already installed and ready." }
+
+        if (!hasRootfs()) {
+            check(!rootfs.exists()) {
+                "An incomplete Debian rootfs directory exists. It was left untouched; inspect or repair it before retrying."
+            }
+            stage("Downloading and installing Debian…")
+            installRootfs(log, progress)
+        } else {
+            log("Debian rootfs already exists; reusing it.")
+        }
+
+        stage("Verifying the bundled PRoot runtime…")
+        log("Running a real command inside Debian through the bundled PRoot executable…")
+        val probe = ProotRunner.start(context, listOf("/bin/echo", "opencode-proot-ready"))
+        val output = try {
+            val text = probe.inputStream.bufferedReader().use { it.readText() }
+            val exitCode = probe.waitFor()
+            check(exitCode == 0 && text.lineSequence().any { it.trim() == "opencode-proot-ready" }) {
+                "Bundled PRoot runtime check failed (exit code $exitCode): $text"
+            }
+            text
+        } finally {
+            if (probe.isAlive) probe.destroyForcibly()
+        }
+        log("Bundled PRoot runtime verified: " + output.lineSequence().firstOrNull { it.trim() == "opencode-proot-ready" }?.trim())
+
+        if (!isReady()) {
+            stage("Installing OpenCode and Linux packages…")
+            installOpenCodeAndPackages(log, progress)
+        } else {
+            log("OpenCode runtime already installed; reusing it.")
+        }
+
+        check(isReady()) { "Installation finished without producing a ready OpenCode runtime." }
+        stage("Your OpenCode workspace is ready.")
+        log("All setup stages completed successfully.")
+    }
     suspend fun installRootfs(log: (String) -> Unit, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
         check(!rootfs.exists()) {
             if (hasRootfs()) {
