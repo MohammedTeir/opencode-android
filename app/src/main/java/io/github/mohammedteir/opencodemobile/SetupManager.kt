@@ -312,6 +312,11 @@ class SetupManager(private val context: Context) {
         var nativeHardLinksSupported = hardlinks.isNotEmpty() && probeHardLinkSupport(stagePath, log)
         var copiedHardLinks = 0
         var createdHardLinks = 0
+        var rootCreatedHardLinks = 0
+        val rootHardLinksEnabled = RootAccessManager.isRootHardLinksEnabled(context)
+        if (rootHardLinksEnabled) {
+            log("Root-assisted hard-link fallback is enabled for this installation.")
+        }
         for ((link, target) in hardlinks) {
             ensureNoSymlinkParents(stagePath, link.parent)
             ensureNoSymlinkParents(stagePath, target.parent)
@@ -347,6 +352,15 @@ class SetupManager(private val context: Context) {
                     }
                 }
 
+                if (rootHardLinksEnabled) {
+                    val rootResult = RootAccessManager.createHardLink(stagePath.toFile(), target, link)
+                    if (rootResult.success) {
+                        rootCreatedHardLinks++
+                        log("Created Debian hard link with optional root authorization.")
+                        continue
+                    }
+                    log("Root-assisted hard link unavailable: ${rootResult.message} Falling back to a regular-file copy.")
+                }
                 materializeHardLinkCopy(target, link)
                 copiedHardLinks++
             } catch (e: Exception) {
@@ -358,7 +372,7 @@ class SetupManager(private val context: Context) {
             }
         }
         if (hardlinks.isNotEmpty()) {
-            log("Rootfs hard links: $createdHardLinks native, $copiedHardLinks copied.")
+            log("Rootfs hard links: $createdHardLinks native, $rootCreatedHardLinks root-assisted, $copiedHardLinks copied.")
         }
         for ((link, target) in symlinks) {
             ensureNoSymlinkParents(stagePath, link.parent)
