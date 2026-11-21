@@ -22,7 +22,7 @@ object ProotRunner {
         val hostStorage = StorageAccessManager.sharedStorageDirectory()
         if (hostStorage != null) {
             val targets = StorageAccessManager.prepareMountTargets(root)
-            for (guestPath in targets) args += listOf("-b", "\${hostStorage.absolutePath}:$guestPath")
+            for (guestPath in targets) args += listOf("-b", "${hostStorage.absolutePath}:$guestPath")
         }
         val safeWorkingDirectory = if (
             StorageAccessManager.isGuestWorkspaceAvailable(root, workingDirectory)
