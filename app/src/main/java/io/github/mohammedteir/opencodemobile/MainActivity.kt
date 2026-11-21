@@ -55,6 +55,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var smokeButton: Button
     private lateinit var updateButton: Button
     private lateinit var repairPackagesButton: Button
+    private lateinit var repairOpenCodeButton: Button
+    private lateinit var rollbackOpenCodeButton: Button
     private lateinit var rootAccessButton: Button
     private lateinit var rootDiagnosticsButton: Button
     private lateinit var rootHardLinkButton: Button
@@ -251,6 +253,20 @@ class MainActivity : ComponentActivity() {
         page.addView(repairPackagesButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)).apply {
             topMargin = dp(6)
         })
+        val openCodeRecovery = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(6), 0, 0)
+        }
+        repairOpenCodeButton = compactButton("Repair OpenCode", false) { confirmOpenCodeRepair() }
+        rollbackOpenCodeButton = compactButton("Restore previous", false) { confirmOpenCodeRollback() }
+        openCodeRecovery.addView(repairOpenCodeButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+            marginEnd = dp(6)
+        })
+        openCodeRecovery.addView(rollbackOpenCodeButton, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+            marginStart = dp(6)
+        })
+        page.addView(openCodeRecovery)
 
         val storageCard = card("#1B1919", 16, "#302B2B").apply {
             setPadding(dp(15), dp(14), dp(15), dp(14))
@@ -493,6 +509,8 @@ class MainActivity : ComponentActivity() {
         serverButton.isEnabled = setup.isReady()
         updateButton.isEnabled = setup.isReady()
         repairPackagesButton.isEnabled = setup.hasRootfs() && !OpenCodeService.isRunning
+        repairOpenCodeButton.isEnabled = setup.hasRootfs() && !OpenCodeService.isRunning
+        rollbackOpenCodeButton.isEnabled = setup.hasPreviousOpenCode() && !OpenCodeService.isRunning
         if (setup.isReady()) status.text = "OpenCode V${setup.installedVersion()} installed · ready to start"
         else if (setup.hasRootfs() && setup.hasOpenCodeBinary()) status.text = "Existing OpenCode install · version metadata missing"
         else if (setup.hasRootfs()) status.text = "Debian installed · run the runtime check"
@@ -627,6 +645,90 @@ class MainActivity : ComponentActivity() {
             } catch (t: Throwable) {
                 appendLog("Debian package repair failed: ${t.message}\n")
                 status.text = "Package repair failed · inspect activity"
+            } finally {
+                setBusy(false)
+                refreshButtons()
+            }
+        }
+    }
+
+    private fun confirmOpenCodeRepair() {
+        if (!setup.hasRootfs()) {
+            Toast.makeText(this, "Install Debian before repairing OpenCode", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (OpenCodeService.isRunning) {
+            Toast.makeText(this, "Stop the OpenCode server before repairing OpenCode", Toast.LENGTH_LONG).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Repair OpenCode?")
+            .setMessage(
+                "This downloads the latest stable ARM64 OpenCode release in the app's supported major-version channel, verifies its SHA-256 digest, and replaces only the OpenCode executable. Debian, your OpenCode configuration, and project files are preserved. It will not downgrade an installed version."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Repair") { _, _ -> runOpenCodeRepair() }
+            .show()
+    }
+
+    private fun runOpenCodeRepair() {
+        if (OpenCodeService.isRunning) {
+            Toast.makeText(this, "Stop the OpenCode server before repairing OpenCode", Toast.LENGTH_LONG).show()
+            return
+        }
+        setBusy(true, "Repairing OpenCode executable…")
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    setup.repairOpenCode(::appendLog) { done, total ->
+                        runOnUiThread { showProgress(done, total, "OpenCode repair") }
+                    }
+                }
+                status.text = "OpenCode repaired · ready to start"
+                appendLog("OpenCode binary repair completed. Debian and user data were preserved.\\n")
+            } catch (t: Throwable) {
+                appendLog("OpenCode repair failed: ${t.message}\\n")
+                status.text = "OpenCode repair failed · inspect activity"
+            } finally {
+                setBusy(false)
+                refreshButtons()
+            }
+        }
+    }
+
+    private fun confirmOpenCodeRollback() {
+        if (!setup.hasPreviousOpenCode()) {
+            Toast.makeText(this, "No verified previous OpenCode binary is available", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (OpenCodeService.isRunning) {
+            Toast.makeText(this, "Stop the OpenCode server before restoring OpenCode", Toast.LENGTH_LONG).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Restore previous OpenCode version?")
+            .setMessage(
+                "The previous executable will become active. The current executable will be retained under a timestamped opencode.failed file. Debian, configuration, and projects will not be changed."
+            )
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Restore") { _, _ -> runOpenCodeRollback() }
+            .show()
+    }
+
+    private fun runOpenCodeRollback() {
+        if (OpenCodeService.isRunning) {
+            Toast.makeText(this, "Stop the OpenCode server before restoring OpenCode", Toast.LENGTH_LONG).show()
+            return
+        }
+        setBusy(true, "Restoring previous OpenCode version…")
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) { setup.restorePreviousOpenCode(::appendLog) }
+                status.text = "Previous OpenCode version restored"
+                appendLog("OpenCode rollback completed. Run Runtime diagnostics before starting the server.\\n")
+            } catch (t: Throwable) {
+                appendLog("OpenCode rollback failed: ${t.message}\\n")
+                status.text = "OpenCode rollback failed · inspect activity"
             } finally {
                 setBusy(false)
                 refreshButtons()
@@ -1120,6 +1222,8 @@ class MainActivity : ComponentActivity() {
         serverButton.isEnabled = !busy && setup.isReady()
         updateButton.isEnabled = !busy && setup.isReady()
         repairPackagesButton.isEnabled = !busy && setup.hasRootfs() && !OpenCodeService.isRunning
+        repairOpenCodeButton.isEnabled = !busy && setup.hasRootfs() && !OpenCodeService.isRunning
+        rollbackOpenCodeButton.isEnabled = !busy && setup.hasPreviousOpenCode() && !OpenCodeService.isRunning
         rootAccessButton.isEnabled = !busy
         rootDiagnosticsButton.isEnabled = !busy
         rootHardLinkButton.isEnabled = !busy
