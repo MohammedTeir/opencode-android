@@ -42,6 +42,10 @@ class OpenCodeService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification())
         }
+        // Snapshot the mount state for this server lifecycle; MainActivity warns if it changes.
+        getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit()
+            .putBoolean(PREF_SHARED_STORAGE_MOUNTED, StorageAccessManager.sharedStorageDirectory() != null)
+            .apply()
         intent?.getStringExtra(EXTRA_WORKING_DIRECTORY)?.let { requested ->
             val rootfs = File(filesDir, "rootfs")
             if (StorageAccessManager.isGuestWorkspaceAvailable(rootfs, requested)) {
@@ -231,6 +235,7 @@ class OpenCodeService : Service() {
         const val EXTRA_WORKING_DIRECTORY = "io.github.mohammedteir.opencodemobile.WORKING_DIRECTORY"
         const val PREFERENCES = "opencode_preferences"
         const val PREF_WORKSPACE_DIRECTORY = "workspace_directory"
+        const val PREF_SHARED_STORAGE_MOUNTED = "server_shared_storage_mounted"
         @Volatile var isRunning: Boolean = false
         private const val TAG = "OpenCodeMobile"
         private const val CHANNEL_ID = "opencode_server"
