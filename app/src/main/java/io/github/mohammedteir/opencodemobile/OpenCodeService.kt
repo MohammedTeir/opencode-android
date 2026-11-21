@@ -42,6 +42,13 @@ class OpenCodeService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification())
         }
+        intent?.getStringExtra(EXTRA_WORKING_DIRECTORY)?.let { requested ->
+            val rootfs = File(filesDir, "rootfs")
+            val selected = if (StorageAccessManager.isGuestWorkspaceAvailable(rootfs, requested)) requested else "/root"
+            getSharedPreferences(PREFERENCES, MODE_PRIVATE).edit()
+                .putString(PREF_WORKSPACE_DIRECTORY, selected)
+                .apply()
+        }
         val installedVersion = runCatching { File(filesDir, "setup_ready").readText().trim() }.getOrNull()
         val binaryReady = File(filesDir, "rootfs/usr/local/bin/opencode").canExecute()
         if (!installedVersion.isNullOrBlank() && binaryReady) {
@@ -69,11 +76,22 @@ class OpenCodeService : Service() {
                     try {
                         killStale()
                         val password = SecretStore.getOrCreate(this)
+                        val rootfs = File(filesDir, "rootfs")
+                        val configuredWorkspace = getSharedPreferences(PREFERENCES, MODE_PRIVATE)
+                            .getString(PREF_WORKSPACE_DIRECTORY, "/root") ?: "/root"
+                        val workspace = if (
+                            StorageAccessManager.isGuestWorkspaceAvailable(rootfs, configuredWorkspace)
+                        ) configuredWorkspace else "/root"
+                        if (workspace != configuredWorkspace) {
+                            appendLog("Saved workspace directory is unavailable; starting in /root.\n")
+                        }
                         val child = ProotRunner.start(
                             this,
                             listOf("/usr/local/bin/opencode", "serve", "--port", "4096", "--hostname", "127.0.0.1"),
-                            mapOf("OPENCODE_PASSWORD" to password)
+                            mapOf("OPENCODE_PASSWORD" to password),
+                            workingDirectory = workspace
                         )
+                        appendLog("OpenCode workspace directory: $workspace\n")
                         process = child
                         appendLog("OpenCode server process started.\n")
                         if (stopping) child.destroyForcibly()
@@ -207,6 +225,9 @@ class OpenCodeService : Service() {
 
     companion object {
         const val ACTION_STOP = "io.github.mohammedteir.opencodemobile.STOP_SERVER"
+        const val EXTRA_WORKING_DIRECTORY = "io.github.mohammedteir.opencodemobile.WORKING_DIRECTORY"
+        const val PREFERENCES = "opencode_preferences"
+        const val PREF_WORKSPACE_DIRECTORY = "workspace_directory"
         @Volatile var isRunning: Boolean = false
         private const val TAG = "OpenCodeMobile"
         private const val CHANNEL_ID = "opencode_server"
