@@ -229,10 +229,10 @@ class OpenCodeService : Service() {
             .setSmallIcon(R.drawable.ic_stat_opencode)
             .setLargeIcon(appIcon)
             .setContentTitle("OpenCode Mobile")
-            .setContentText("Your local coding server is running")
+            .setContentText("Your workspace is ready")
             .setStyle(
                 Notification.BigTextStyle()
-                    .bigText("OpenCode is ready on this phone.\nLocal address: 127.0.0.1:4096")
+                    .bigText("OpenCode is running in the background. Return to the app to continue working.")
             )
             .setCategory(Notification.CATEGORY_SERVICE)
             .setPriority(Notification.PRIORITY_LOW)
