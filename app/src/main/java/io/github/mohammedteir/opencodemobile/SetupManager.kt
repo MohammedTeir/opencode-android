@@ -297,7 +297,28 @@ class SetupManager(private val context: Context) {
         for ((link, target) in symlinks) {
             ensureNoSymlinkParents(stagePath, link.parent)
             Files.createDirectories(link.parent)
-            Files.createSymbolicLink(link, Paths.get(target))
+
+            // Some rootfs tarballs contain repeated path records. Replace an existing
+            // non-directory entry rather than letting createSymbolicLink fail with
+            // FileAlreadyExistsException. The staging tree is private to this install.
+            if (Files.exists(link, LinkOption.NOFOLLOW_LINKS)) {
+                require(!Files.isDirectory(link, LinkOption.NOFOLLOW_LINKS)) {
+                    "Cannot replace directory with Debian symlink: $link"
+                }
+                Files.delete(link)
+            }
+
+            try {
+                // Android's libcore NIO provider has device/filesystem-specific
+                // symlink behavior; use the platform syscall directly and keep the
+                // tar link target relative exactly as stored in the archive.
+                Os.symlink(target, link.toString())
+            } catch (e: Exception) {
+                throw java.io.IOException(
+                    "Could not create Debian symlink '$link' -> '$target': ${e.message}",
+                    e
+                )
+            }
         }
         directoryModes.sortedByDescending { it.first.nameCount }.forEach { (path, mode) ->
             if (!Files.isSymbolicLink(path)) runCatching { Os.chmod(path.toString(), mode and 4095) }
