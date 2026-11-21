@@ -867,25 +867,33 @@ class MainActivity : ComponentActivity() {
                 false
             }
             if (ready) {
-                val pairingCode = withContext(Dispatchers.IO) {
-                    val client = OkHttpClient.Builder()
-                        .connectTimeout(5, TimeUnit.SECONDS)
-                        .readTimeout(10, TimeUnit.SECONDS)
-                        .build()
-                    val auth = Credentials.basic("opencode", SecretStore.getOrCreate(this@MainActivity))
-                    val request = Request.Builder()
-                        .url(SERVER_URL + "/api/pair")
-                        .header("Authorization", auth)
-                        .header("Accept", "application/json")
-                        .post(ByteArray(0).toRequestBody(null))
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        val body = response.body?.string().orEmpty()
-                        check(response.isSuccessful) {
-                            "Could not create local web session (HTTP ${response.code}): ${body.take(240)}"
+                val pairingResult = runCatching {
+                    withContext(Dispatchers.IO) {
+                        val client = OkHttpClient.Builder()
+                            .connectTimeout(5, TimeUnit.SECONDS)
+                            .readTimeout(10, TimeUnit.SECONDS)
+                            .build()
+                        val auth = Credentials.basic("opencode", SecretStore.getOrCreate(this@MainActivity))
+                        val request = Request.Builder()
+                            .url(SERVER_URL + "/api/pair")
+                            .header("Authorization", auth)
+                            .header("Accept", "application/json")
+                            .post(ByteArray(0).toRequestBody(null))
+                            .build()
+                        client.newCall(request).execute().use { response ->
+                            val body = response.body?.string().orEmpty()
+                            check(response.isSuccessful) {
+                                "Could not create local web session (HTTP ${response.code}): ${body.take(240)}"
+                            }
+                            org.json.JSONObject(body).getString("code")
                         }
-                        org.json.JSONObject(body).getString("code")
                     }
+                }
+                val pairingCode = pairingResult.getOrElse { error ->
+                    status.text = "Could not authenticate workspace"
+                    appendLog("Automatic web pairing failed: ${error.message ?: error.javaClass.simpleName}\n")
+                    Toast.makeText(this@MainActivity, "Could not open authenticated workspace", Toast.LENGTH_LONG).show()
+                    return@launch
                 }
                 if (setup.deletePreviousBinary()) appendLog("Verified updated OpenCode server; previous binary removed.\n")
                 status.text = "Server ready · opening workspace"
