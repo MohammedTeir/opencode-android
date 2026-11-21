@@ -656,9 +656,9 @@ class MainActivity : ComponentActivity() {
         val root = runCatching { storageRoot.canonicalFile }.getOrNull() ?: return
         val folder = runCatching { current.canonicalFile }.getOrNull() ?: return
         if (folder.path != root.path && !folder.path.startsWith(root.path + File.separator)) return
-        val children = folder.listFiles()
+        val children = runCatching { folder.listFiles() }.getOrNull()
             ?.filter { child ->
-                child.isDirectory && child.canRead() &&
+                child.isDirectory && child.canRead() && child.canWrite() &&
                     !(folder.name == "Android" && child.name in setOf("data", "obb"))
             }
             ?.sortedBy { it.name.lowercase() }
