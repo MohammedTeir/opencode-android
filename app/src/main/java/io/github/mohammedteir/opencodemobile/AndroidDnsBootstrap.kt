@@ -141,10 +141,10 @@ object AndroidDnsBootstrap {
             // Replace every old nameserver (including manually configured public DNS),
             // while retaining search/domain/options and other administrator directives.
             val preservedLines = existing.lineSequence()
-                .filterNot { it.trimStart().startsWith("nameserver ") }
+                .filterNot { Regex("^\\\\s*nameserver\\\\s+", RegexOption.IGNORE_CASE).containsMatchIn(it) }
                 .filterNot { it.trim() == RESOLVER_HEADER }
                 .toMutableList()
-            if (preservedLines.none { it.trimStart().startsWith("options ") }) {
+            if (preservedLines.none { Regex("^\\\\s*options\\\\s+", RegexOption.IGNORE_CASE).containsMatchIn(it) }) {
                 preservedLines += "options timeout:2 attempts:2 rotate"
             }
             val resolverContent = buildString {
@@ -156,7 +156,11 @@ object AndroidDnsBootstrap {
                 log("Android DNS refresh skipped before write: active network changed.")
                 scheduleMonitoredRefresh()
             } else {
-                writeAtomically(resolv, resolverContent)
+                val committed = writeAtomically(resolv, resolverContent) { connectivity?.activeNetwork == network }
+                if (!committed) {
+                    log("Android DNS refresh skipped at commit: active network changed.")
+                    scheduleMonitoredRefresh()
+                }
             }
         }.onFailure {
             log("Android DNS refresh could not update resolv.conf: " + it.message)
@@ -235,15 +239,28 @@ object AndroidDnsBootstrap {
         }
     }
 
-    private fun writeAtomically(path: java.nio.file.Path, content: String) {
+    private fun writeAtomically(
+        path: java.nio.file.Path,
+        content: String,
+        shouldCommit: () -> Boolean = { true }
+    ): Boolean {
         val temporary = path.resolveSibling(path.fileName.toString() + ".opencode-tmp")
         if (Files.isSymbolicLink(temporary)) Files.delete(temporary)
         Files.write(temporary, content.toByteArray(Charsets.UTF_8))
+        if (!shouldCommit()) {
+            Files.deleteIfExists(temporary)
+            return false
+        }
         try {
             Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
         } catch (_: Exception) {
+            if (!shouldCommit()) {
+                Files.deleteIfExists(temporary)
+                return false
+            }
             Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING)
         }
+        return true
     }
 
     /** Resolve a hostname using Android's active network for diagnostics. */
