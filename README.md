@@ -25,7 +25,7 @@ The runtime diagnostics include a read-only component inventory for the APK-bund
 
 ## Build locally
 
-Requirements: JDK 17 or newer, Android SDK Platform 34, Build Tools 34.0.0, and Gradle 8.9. The Gradle wrapper is included. Only `arm64-v8a` is packaged.
+Requirements: JDK 17 or newer, Android SDK Platform 36, Build Tools 36.0.0, Gradle 8.9, and the AArch64 GNU/Linux cross-compiler (`gcc-aarch64-linux-gnu`) used to build the Debian glibc NSS resolver module. The Gradle wrapper is included. Only `arm64-v8a` is packaged.
 
 ```sh
 ./gradlew assembleDebug
@@ -72,6 +72,6 @@ The workspace picker first asks which filesystem to browse, then lets the user n
 
 ## PRoot network and provider DNS
 
-Before each PRoot process starts, the app refreshes Debian's resolver configuration from Android's active network and resolves common API endpoints through Android's per-network resolver. The resulting addresses are written to a clearly marked, replaceable block in Debian's `/etc/hosts`; this is a fallback for environments where direct DNS queries from PRoot are blocked. It covers Gemini, OpenAI, Anthropic, OpenRouter, Groq, Mistral, Cohere, DeepSeek, xAI, and GitHub API endpoints.
+Before each PRoot process starts, the app refreshes Debian's resolver configuration and starts an abstract Unix-socket bridge in Android's local socket namespace. The APK includes a small ARM64 glibc NSS module; the app installs it into Debian and adds `android` to the `hosts:` line in `/etc/nsswitch.conf`. Standard glibc `getaddrinfo`/`getent` lookups ask the Android app to resolve arbitrary hostnames through Android's active-network resolver, then fall back to Debian's configured DNS source when the bridge is unavailable. Android's resolver follows the active network's VPN and Private DNS policy; the app does not force a public resolver, require root, bind a privileged DNS port, or replace an existing VPN.
 
-The fallback is refreshed at process launch and uses addresses returned by Android at runtime; provider IP addresses are not hardcoded. This is not a permanent DNS proxy: a long-running process can still encounter stale CDN records if an endpoint's addresses change during that process lifetime. Normal DNS remains configured through `/etc/resolv.conf`. HTTPS/TLS and provider authentication failures are separate from DNS resolution and are not bypassed by this fallback.
+This branch does not use a provider-host `/etc/hosts` cache. **The NSS bridge does not intercept software that sends raw DNS packets itself, uses a private DNS-over-HTTPS implementation, or bypasses hostname resolution; those behaviors remain subject to Android/VPN network policy.** Runtime diagnostics test both the Android NSS backend directly (`getent -s android`) and arbitrary hostnames/HTTPS endpoints. A successful DNS lookup does not guarantee that a VPN, captive portal, firewall, TLS policy, or remote service permits the subsequent connection.

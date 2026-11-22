@@ -17,7 +17,9 @@ import java.nio.file.LinkOption
  *
  * Android's Network.getAllByName is used only for diagnostics/bootstrap tasks
  * that explicitly need Android-side resolution. It is not used to maintain a
- * hardcoded provider /etc/hosts allowlist.
+ * hardcoded provider /etc/hosts allowlist. Some Android/VPN/Private-DNS
+ * configurations do not allow raw DNS packets from Linux userspace; the
+ * Android-backed NSS bridge handles standard glibc hostname lookups instead.
  */
 object AndroidDnsBootstrap {
     data class Snapshot(

@@ -16,6 +16,16 @@ val fetchBundledRuntimeAssets by tasks.registering(Exec::class) {
     commandLine("bash", rootProject.file("scripts/fetch-bundled-runtime.sh").absolutePath, assetDirectory.absolutePath)
 }
 
+val generatedDnsAssets = layout.buildDirectory.dir("generated/androidDnsAssets")
+
+val buildAndroidNssResolver by tasks.registering(Exec::class) {
+    val assetDirectory = generatedDnsAssets.get().asFile
+    inputs.file(rootProject.file("third_party/android-nss-resolver/nss_android.c"))
+    inputs.file(rootProject.file("scripts/build-android-nss-resolver.sh"))
+    outputs.file(assetDirectory.resolve("libnss_android.so.2"))
+    commandLine("bash", rootProject.file("scripts/build-android-nss-resolver.sh").absolutePath, assetDirectory.absolutePath)
+}
+
 android {
     namespace = "io.github.mohammedteir.opencodemobile"
     compileSdk = 36
@@ -34,6 +44,7 @@ android {
     }
 
     sourceSets.getByName("main").assets.srcDir(bundledRuntimeAssets)
+    sourceSets.getByName("main").assets.srcDir(generatedDnsAssets)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -59,6 +70,7 @@ android {
 
 tasks.named("preBuild").configure {
     dependsOn(fetchBundledRuntimeAssets)
+    dependsOn(buildAndroidNssResolver)
 }
 
 dependencies {

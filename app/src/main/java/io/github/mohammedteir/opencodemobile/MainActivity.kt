@@ -577,7 +577,7 @@ class MainActivity : ComponentActivity() {
                         echo
                         echo "=== DNS resolution (system resolver; no provider allowlist) ==="
                         dns_failures=0
-                        for host in generativelanguage.googleapis.com api.openai.com api.anthropic.com github.com deb.debian.org; do
+                        for host in example.com iana.org generativelanguage.googleapis.com api.openai.com api.anthropic.com github.com deb.debian.org; do
                             if getent ahosts "${'$'}host" >/dev/null 2>&1; then
                                 echo "DNS_OK ${'$'}host"
                             else
@@ -585,11 +585,16 @@ class MainActivity : ComponentActivity() {
                                 dns_failures=$((dns_failures + 1))
                             fi
                         done
+                        if getent -s android ahosts example.com >/dev/null 2>&1; then
+                            echo "ANDROID_NSS_OK example.com"
+                        else
+                            echo "ANDROID_NSS_FAIL example.com (bridge/module unavailable or Android resolver failed)"
+                        fi
                         echo
                         echo "=== HTTPS transport diagnostics (not API health/authentication tests) ==="
                         https_failures=0
                         if command -v curl >/dev/null 2>&1; then
-                            for url in https://generativelanguage.googleapis.com/ https://api.openai.com/ https://api.anthropic.com/ https://github.com/; do
+                            for url in https://example.com/ https://generativelanguage.googleapis.com/ https://api.openai.com/ https://api.anthropic.com/ https://github.com/; do
                                 # HTTP error statuses still prove an HTTP response was received.
                                 # They do not prove provider API health or successful authentication.
                                 metrics=$(curl -sS -o /dev/null \
@@ -643,12 +648,36 @@ class MainActivity : ComponentActivity() {
                             fi
                         fi
                     """.trimIndent()
+                    val hosts = listOf(
+                        "example.com",
+                        "iana.org",
+                        "generativelanguage.googleapis.com",
+                        "api.openai.com",
+                        "api.anthropic.com",
+                        "github.com",
+                        "deb.debian.org"
+                    )
+                    val androidDns = AndroidDnsBootstrap.snapshot(this@MainActivity)
+                    val androidDnsReport = buildString {
+                        appendLine("=== Android active-network DNS ===")
+                        appendLine("NETWORK_AVAILABLE ${androidDns.networkAvailable}")
+                        appendLine("DNS_SERVERS ${androidDns.dnsServers.joinToString(", ").ifBlank { "none" }}")
+                        appendLine("PRIVATE_DNS_ACTIVE ${androidDns.privateDnsActive}")
+                        appendLine("PRIVATE_DNS_SERVER ${androidDns.privateDnsServerName ?: "not reported"}")
+                        hosts.forEach { host ->
+                            val addresses = runCatching {
+                                AndroidDnsBootstrap.resolveOnActiveNetwork(this@MainActivity, host)
+                            }.getOrElse { emptyList() }
+                            if (addresses.isEmpty()) appendLine("ANDROID_DNS_FAIL $host")
+                            else appendLine("ANDROID_DNS_OK $host ${addresses.joinToString(",")}")
+                        }
+                    }.trimEnd()
                     val inventory = RuntimeManager(this@MainActivity).inspect().report()
                     val p = ProotRunner.start(this@MainActivity, listOf("/bin/sh", "-c", script))
                     val output = p.inputStream.bufferedReader().readText().trim()
                     val code = p.waitFor()
                     check(code == 0) { "PRoot diagnostic command failed (exit $code): $output" }
-                    "$inventory\n\n=== Network diagnostics ===\n$output"
+                    "$inventory\n\n$androidDnsReport\n\n=== PRoot diagnostics ===\n$output"
                 }
                 appendLog("Runtime and network diagnostics completed.\n${result}\n")
                 val runtimeNeedsAttention = result.contains("[MISSING]") ||
