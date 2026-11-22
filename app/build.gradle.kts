@@ -11,6 +11,7 @@ val bundledRuntimeAssets = layout.buildDirectory.dir("generated/bundledRuntimeAs
 
 val fetchBundledRuntimeAssets by tasks.registering(Exec::class) {
     val assetDirectory = bundledRuntimeAssets.get().asFile
+    inputs.file(rootProject.file("scripts/fetch-bundled-runtime.sh"))
     outputs.dir(assetDirectory)
     commandLine("bash", rootProject.file("scripts/fetch-bundled-runtime.sh").absolutePath, assetDirectory.absolutePath)
 }
