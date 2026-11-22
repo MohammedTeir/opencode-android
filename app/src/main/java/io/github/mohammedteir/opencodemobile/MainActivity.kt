@@ -603,11 +603,12 @@ class MainActivity : ComponentActivity() {
                         https_failures=0
                         if command -v curl >/dev/null 2>&1; then
                             for url in https://example.com/ https://generativelanguage.googleapis.com/ https://api.openai.com/ https://api.anthropic.com/ https://github.com/; do
-                                # HTTP error statuses still prove an HTTP response was received.
-                                # They do not prove provider API health or successful authentication.
-                                metrics=$(curl -sS -o /dev/null \
+                                # HEAD avoids downloading large homepages just to verify HTTPS transport.
+                                # Follow redirects; HTTP error statuses still prove the endpoint responded.
+                                # This checks transport and TLS only, not provider API health or authentication.
+                                metrics=$(curl -sS -I -L -o /dev/null \
                                     -w "%{http_code}|%{remote_ip}|%{time_connect}|%{time_appconnect}|%{ssl_verify_result}" \
-                                    --connect-timeout 8 --max-time 15 "${'$'}url" 2>/dev/null)
+                                    --connect-timeout 8 --max-time 20 "${'$'}url" 2>/dev/null)
                                 rc=$?
                                 old_ifs=${'$'}IFS
                                 IFS='|'
@@ -621,8 +622,14 @@ class MainActivity : ComponentActivity() {
                                 tcp_connected=$(awk -v value="${'$'}time_connect" 'BEGIN { print (value + 0 > 0) ? 1 : 0 }')
                                 tls_connected=$(awk -v value="${'$'}time_appconnect" 'BEGIN { print (value + 0 > 0) ? 1 : 0 }')
 
-                                if [ "${'$'}rc" -eq 0 ] && [ "${'$'}http_code" != "000" ] && [ "${'$'}ssl_verify" = "0" ]; then
-                                    echo "HTTPS_TRANSPORT_OK ${'$'}url HTTP=${'$'}http_code REMOTE=${'$'}remote_ip TLS_VERIFY=OK (API health/authentication not tested)"
+                                # A verified TLS session plus an HTTP status proves transport even if curl
+                                # reports a later timeout while following redirects or finishing the request.
+                                if [ "${'$'}http_code" != "000" ] && [ "${'$'}ssl_verify" = "0" ] && [ "${'$'}tls_connected" = "1" ]; then
+                                    if [ "${'$'}rc" -eq 0 ]; then
+                                        echo "HTTPS_TRANSPORT_OK ${'$'}url HTTP=${'$'}http_code REMOTE=${'$'}remote_ip TLS_VERIFY=OK (API health/authentication not tested)"
+                                    else
+                                        echo "HTTPS_TRANSPORT_OK ${'$'}url HTTP=${'$'}http_code REMOTE=${'$'}remote_ip TLS_VERIFY=OK NOTE=curl_exit_${'$'}rc_after_http_response (API health/authentication not tested)"
+                                    fi
                                 else
                                     https_failures=$((https_failures + 1))
                                     if [ "${'$'}ssl_verify" != "unknown" ] && [ "${'$'}ssl_verify" != "0" ]; then
