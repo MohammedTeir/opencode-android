@@ -404,7 +404,7 @@ class MainActivity : ComponentActivity() {
         activityHeader.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         activityToggle = text("Show  ↓", 11f, "#A9A2A2", true)
         activityHeader.addView(activityToggle)
-        val shareDiagnostics = text("Share report", 11f, "#D8D2D2", true).apply {
+        val shareDiagnostics = text("Crash report", 11f, "#D8D2D2", true).apply {
             setPadding(dp(12), dp(6), dp(2), dp(6))
             isClickable = true
             isFocusable = true
@@ -423,6 +423,7 @@ class MainActivity : ComponentActivity() {
             val expanded = activityPanel.visibility != View.VISIBLE
             activityPanel.visibility = if (expanded) View.VISIBLE else View.GONE
             activityToggle.text = if (expanded) "Hide  ↑" else "Show  ↓"
+            if (expanded) activityPanel.refresh()
         }
         page.addView(activityHeader)
         page.addView(activityPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(390)))
@@ -889,7 +890,6 @@ class MainActivity : ComponentActivity() {
                 }
                 RootOperationLog.append(this@MainActivity, result.title, result.success, result.message + "\n" + result.output)
                 appendLog("[$label] ${result.message}\n")
-                if (result.output.isNotBlank()) appendLog(result.output + "\n")
                 // Keep results inline; detailed command output stays in the collapsible activity log.
                 rootStatus.text = result.message
                 if (result.output.isNotBlank()) appendLog("[Details] ${result.output}\n")
