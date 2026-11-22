@@ -7,6 +7,13 @@ val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH")
 val releaseKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
+val bundledRuntimeAssets = layout.buildDirectory.dir("generated/bundledRuntimeAssets")
+
+val fetchBundledRuntimeAssets by tasks.registering(Exec::class) {
+    val assetDirectory = bundledRuntimeAssets.get().asFile
+    outputs.dir(assetDirectory)
+    commandLine("bash", rootProject.file("scripts/fetch-bundled-runtime.sh").absolutePath, assetDirectory.absolutePath)
+}
 
 android {
     namespace = "io.github.mohammedteir.opencodemobile"
@@ -24,6 +31,8 @@ android {
     packaging {
         jniLibs { useLegacyPackaging = true }
     }
+
+    sourceSets.getByName("main").assets.srcDir(bundledRuntimeAssets)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -45,6 +54,10 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
     }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(fetchBundledRuntimeAssets)
 }
 
 dependencies {

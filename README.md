@@ -1,13 +1,13 @@
 # OpenCode Mobile
 
-A native Android app that packages ARM64 PRoot, installs a Debian Bookworm ARM64 root filesystem and the original OpenCode V2 CLI on first run, starts the V2 web/API server in a foreground service, and displays its loopback web UI in an authenticated WebView. It is a single installable APK and has no Termux dependency. The first-run installer performs Debian setup, a real PRoot execution check, OpenCode installation, and required Linux package installation in one resumable action. Large Debian and OpenCode payloads are downloaded into app-private storage and SHA-256 verified rather than inflating every APK release.
+A native Android app that packages ARM64 PRoot, the Debian Bookworm ARM64 root filesystem, and the original OpenCode V2 CLI in one installable APK. First launch extracts the bundled runtime, starts the V2 web/API server in a foreground service, and displays its loopback web UI in an authenticated WebView. No Termux or separate Debian/OpenCode app is required. The Debian and OpenCode archives are fetched and SHA-256 verified during APK builds, not downloaded by the phone during initial extraction. **The current installer still uses APT over the network to install baseline Linux tools (Git, ripgrep, curl, CA certificates, procps, OpenSSH client, and unzip); fully offline initialization is not complete yet.**
 
 ## Scope and milestones
 
 The app implements M1–M4 plus the requested V2 migration and CI/release workflows. Later product polish remains out of scope until M1–M4 pass on a real phone.
 
 1. **M1:** install Debian and run a real command through the PRoot executable bundled in the APK.
-2. **M2:** download and checksum-verify OpenCode V2.3.2 ARM64, install Git/ripgrep/curl/CA certificates/procps, and create V2-native permission defaults. The one-tap installer resumes from completed stages.
+2. **M2:** install the APK-bundled OpenCode V2.3.2 ARM64, install Git/ripgrep/curl/CA certificates/procps, and create V2-native permission defaults. The one-tap installer resumes from completed stages.
 3. **M3:** run `opencode serve` in an Android foreground service, bind only to `127.0.0.1`, keep a random 256-bit password in private app storage, and pass it through `OPENCODE_PASSWORD`.
 4. **M4:** require authenticated JSON from `/api/info` reporting V2.3.2, then load the server UI in an authenticated WebView. Navigation is limited to `http://127.0.0.1:4096`.
 
@@ -49,7 +49,7 @@ The setup screen also provides **Repair OpenCode** and **Restore previous** acti
 - **Debian Bookworm ARM64 rootfs:** `https://images.linuxcontainers.org/images/debian/bookworm/arm64/default/20261117_05:24/rootfs.tar.xz`; SHA-256 `125416b51b1272db7abd932bc7cc5f286fd29a190cb5a1b18460500f5448d5fc`.
 - **OpenCode V2.3.2 ARM64 release:** `https://github.com/anomalyco/opencode/releases/download/v2.3.2/opencode-linux-arm64.tar.gz`; SHA-256 `9d10185acdb72336e086e699ca363a6065f410fd3c1caed0dc8046e95ac06ccb`.
 
-The Debian rootfs and OpenCode archives are downloaded at first run rather than embedded in the APK and are verified against pinned digests. Rootfs extraction uses a fresh staging directory, rejects traversal and symlink-parent traversal, and skips device nodes and FIFOs. If Android force-stops the app during extraction, the next setup attempt removes only abandoned directories matching the app's private `rootfs-staging-<timestamp>` pattern before retrying; a verified cached archive is retained for reuse.
+The Android build runs `scripts/fetch-bundled-runtime.sh` and places the two pinned, SHA-256-verified archives in APK assets. A build therefore needs network access once; a user installing the resulting APK does not download Debian or OpenCode during setup. These compressed payloads total about 207 MiB before APK packaging, in addition to the extracted Debian filesystem; leave ample free storage on the device. Rootfs extraction uses a fresh staging directory, rejects traversal and symlink-parent traversal, and skips device nodes and FIFOs. If Android force-stops the app during extraction, the next setup attempt removes only abandoned directories matching the app's private `rootfs-staging-<timestamp>` pattern before retrying; a verified cached archive is retained for reuse. The subsequent APT step currently requires an internet connection, so the complete setup is not yet offline-capable.
 
 ## Validation still required
 

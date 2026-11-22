@@ -1,6 +1,7 @@
 package io.github.mohammedteir.opencodemobile
 
 import android.content.Context
+import android.os.StatFs
 import android.system.ErrnoException
 import android.system.Os
 import kotlinx.coroutines.Dispatchers
@@ -325,6 +326,7 @@ class SetupManager(private val context: Context) {
         stage: (String) -> Unit
     ) = withContext(Dispatchers.IO) {
         check(!isReady()) { "OpenCode is already installed and ready." }
+        checkSetupStorage()
 
         if (!hasRootfs()) {
             check(!rootfs.exists()) {
@@ -382,13 +384,10 @@ class SetupManager(private val context: Context) {
                 archive.delete()
                 log("Discarded an incomplete or invalid cached Debian archive.")
             }
-            log("Downloading pinned Debian Bookworm ARM64 rootfs…")
-            download(ROOTFS_URL, archive, progress)
-            log("Checking SHA-256…")
-            if (sha256(archive) != ROOTFS_SHA256) {
-                archive.delete()
-                error("Rootfs checksum mismatch; download removed.")
-            }
+            log("Copying the bundled Debian Bookworm ARM64 rootfs from the APK…")
+            copyBundledAsset("debian-bookworm-arm64-rootfs.tar.xz", archive, ROOTFS_SHA256)
+            progress(archive.length(), archive.length())
+            log("Bundled Debian rootfs SHA-256 verified.")
         }
 
         cleanupAbandonedRootfsStagingDirectories(log)
@@ -416,7 +415,10 @@ class SetupManager(private val context: Context) {
     suspend fun installOpenCodeAndPackages(log: (String) -> Unit, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
         check(hasRootfs()) { "Install the Debian rootfs first." }
         val archive = File(downloadDirectory(), "opencode-${OPENCODE_VERSION}-linux-arm64.tar.gz")
-        downloadVerified(OPENCODE_URL, archive, OPENCODE_SHA256, progress) { log(it) }
+        log("Copying the bundled OpenCode ARM64 runtime from the APK…")
+        copyBundledAsset("opencode-v${OPENCODE_VERSION}-linux-arm64.tar.gz", archive, OPENCODE_SHA256)
+        progress(archive.length(), archive.length())
+        log("Bundled OpenCode runtime SHA-256 verified.")
         installOpenCodeTar(archive, File(rootfs, "usr/local/bin/opencode"))
         pruneOpenCodeArchiveCache(archive)
         postExtractFixes(rootfs, log)
@@ -462,6 +464,41 @@ class SetupManager(private val context: Context) {
         File(context.filesDir, "downloads").apply { check(isDirectory || mkdirs()) {
             "Could not create persistent download cache."
         } }
+
+    private fun checkSetupStorage() {
+        val available = StatFs(context.filesDir.absolutePath).availableBytes
+        val required = if (hasRootfs()) MIN_RESUME_SETUP_FREE_BYTES else MIN_FIRST_SETUP_FREE_BYTES
+        check(available >= required) {
+            val availableMiB = available / (1024L * 1024L)
+            val requiredMiB = required / (1024L * 1024L)
+            "Not enough free app storage to safely initialize OpenCode: $availableMiB MiB available, " +
+                "at least $requiredMiB MiB required. Free device storage and tap Continue setup."
+        }
+    }
+
+    private fun copyBundledAsset(assetName: String, destination: File, expectedSha256: String) {
+        destination.parentFile?.let { check(it.isDirectory || it.mkdirs()) {
+            "Could not create the private runtime cache directory."
+        } }
+        val temporary = File(destination.parentFile, destination.name + ".bundled-part")
+        try {
+            context.assets.open(assetName).use { input ->
+                FileOutputStream(temporary).use { output ->
+                    input.copyTo(output, 128 * 1024)
+                    output.fd.sync()
+                }
+            }
+            check(sha256(temporary) == expectedSha256) {
+                "Bundled asset $assetName failed SHA-256 verification. Reinstall the application APK."
+            }
+            if (destination.exists()) check(destination.delete()) {
+                "Could not replace the cached runtime asset."
+            }
+            check(temporary.renameTo(destination)) { "Could not finalize the bundled runtime asset." }
+        } finally {
+            if (temporary.exists()) temporary.delete()
+        }
+    }
 
     private fun pruneOpenCodeArchiveCache(keep: File) {
         val cache = keep.parentFile ?: return
@@ -977,6 +1014,8 @@ class SetupManager(private val context: Context) {
         const val ROOTFS_SHA256 = "125416b51b1272db7abd932bc7cc5f286fd29a190cb5a1b18460500f5448d5fc"
         const val OPENCODE_URL = "https://github.com/anomalyco/opencode/releases/download/v2.3.2/opencode-linux-arm64.tar.gz"
         const val OPENCODE_SHA256 = "9d10185acdb72336e086e699ca363a6065f410fd3c1caed0dc8046e95ac06ccb"
+        private const val MIN_FIRST_SETUP_FREE_BYTES = 1536L * 1024L * 1024L
+        private const val MIN_RESUME_SETUP_FREE_BYTES = 768L * 1024L * 1024L
         const val LATEST_RELEASE_URL = "https://api.github.com/repos/anomalyco/opencode/releases?per_page=100"
         const val OPENCODE_ASSET_NAME = "opencode-linux-arm64.tar.gz"
 
