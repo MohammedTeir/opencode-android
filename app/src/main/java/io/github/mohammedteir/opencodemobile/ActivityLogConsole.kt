@@ -34,11 +34,14 @@ internal class ActivityLogStore(context: Context) {
     @Synchronized fun append(value: String) {
         if (value.isBlank()) return
         file.parentFile?.mkdirs()
-        val record = System.currentTimeMillis().toString() + "\n" + value
+        val safeValue = redact(value).take(32 * 1024)
+        val record = System.currentTimeMillis().toString() + "\n" + safeValue
         file.appendText(Base64.encodeToString(record.toByteArray(Charsets.UTF_8), Base64.NO_WRAP) + "\n")
         if (file.length() > 1024L * 1024L) file.writeText(file.readLines().takeLast(500).joinToString("\n", postfix = "\n"))
     }
     @Synchronized fun clear() { file.delete() }
+    private fun redact(value: String): String = Regex("(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|password|authorization|secret)(\\s*[:=]\\s*)([^\\s,;]+)")
+        .replace(value) { it.groupValues[1] + it.groupValues[2] + "[REDACTED]" }
     @Synchronized fun events(): List<ActivityEvent> = if (!file.isFile) emptyList() else file.readLines().mapNotNull { row ->
         runCatching {
             val decoded = String(Base64.decode(row, Base64.NO_WRAP), Charsets.UTF_8)
@@ -200,6 +203,7 @@ internal class ActivityLogConsole(
     private inner class EventAdapter : RecyclerView.Adapter<EventAdapter.Holder>() {
         private var items = emptyList<ActivityEvent>()
         private val expanded = mutableSetOf<Long>()
+        private fun key(event: ActivityEvent) = event.time xor event.raw.hashCode().toLong()
         fun submit(value: List<ActivityEvent>) { items = value; notifyDataSetChanged() }
         override fun onCreateViewHolder(parent: ViewGroup, type: Int): Holder {
             return Holder(LinearLayout(parent.context).apply {
@@ -221,7 +225,7 @@ internal class ActivityLogConsole(
             line.addView(body, LayoutParams(0, -2, 1f))
             line.addView(label(time(event.time), 9f, "#827B7B", false))
             holder.box.addView(line)
-            if (expanded.contains(event.time)) {
+            if (expanded.contains(key(event))) {
                 holder.box.addView(label(event.raw, 10f, "#BFB8B8", false).apply {
                     typeface = Typeface.create("monospace", Typeface.NORMAL); setTextIsSelectable(true)
                     setPadding(dp(22), dp(9), 0, dp(2))
@@ -236,7 +240,7 @@ internal class ActivityLogConsole(
                 })
             }
             holder.box.setOnClickListener {
-                if (!expanded.add(event.time)) expanded.remove(event.time)
+                if (!expanded.add(key(event))) expanded.remove(key(event))
                 notifyItemChanged(position)
             }
         }
