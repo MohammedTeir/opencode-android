@@ -4,7 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.LocalServerSocket
 import android.net.LocalSocket
-import android.net.LocalSocketAddress
+import android.os.Process
 import android.system.Os
 import android.util.Log
 import java.io.File
@@ -19,17 +19,16 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Bridges glibc's NSS hostname lookups in the Debian PRoot to Android's active-network resolver.
- * The guest module speaks a small line protocol over a private filesystem Unix socket, so no
+ * The guest module speaks a small line protocol over an abstract local Unix socket, so no
  * privileged DNS port, public resolver, root access, or VPN replacement is needed.
  */
 object AndroidDnsResolver {
     private const val TAG = "OpenCodeDns"
-    private const val SOCKET_FILE_NAME = "opencode-android-dns.sock"
+    private const val SOCKET_NAME = "io.github.mohammedteir.opencodemobile.android-dns"
     private const val NSS_MODULE_ASSET = "libnss_android.so.2"
     private const val NSS_MODULE_PATH = "usr/lib/aarch64-linux-gnu/libnss_android.so.2"
     private val lock = Any()
     @Volatile private var server: LocalServerSocket? = null
-    @Volatile private var serverPath: File? = null
 
     private val workers = ThreadPoolExecutor(
         4, 4, 30L, TimeUnit.SECONDS,
@@ -39,42 +38,30 @@ object AndroidDnsResolver {
     )
 
     /** Start or reuse the app-process resolver and install its glibc NSS shim in Debian. */
-    fun prepare(context: Context, rootfs: File, log: (String) -> Unit = {}): File? {
+    fun prepare(context: Context, rootfs: File, log: (String) -> Unit = {}): Boolean {
         val appContext = context.applicationContext
-        val socketPath = runCatching { ensureServer(appContext) }
+        val serverReady = runCatching { ensureServer(appContext) }
+            .map { true }
             .onFailure { log("Android-backed DNS bridge could not start: ${it.message}; Debian DNS fallback remains enabled.") }
-            .getOrNull()
+            .getOrDefault(false)
         val moduleInstalled = runCatching { installGuestNssModule(appContext, rootfs) }
             .onSuccess { log("Android-backed DNS via Debian glibc NSS is enabled for arbitrary hostname lookups.") }
             .onFailure { log("Android-backed glibc resolver could not be installed: ${it.message}; Debian DNS fallback remains enabled.") }
             .isSuccess
-        if (!moduleInstalled) return null
-        val target = File(rootfs, "tmp/opencode-android-dns.sock")
-        val targetParent = target.parentFile ?: return null
-        if (!targetParent.isDirectory || Files.isSymbolicLink(targetParent.toPath())) return null
-        check(!Files.isSymbolicLink(target.toPath())) { "Refusing to bind over a symlinked Debian DNS socket target." }
-        if (!target.exists()) check(target.createNewFile()) { "Could not create Debian DNS socket bind target." }
-        check(!target.isDirectory) { "Debian DNS socket bind target is a directory." }
-        return socketPath
+        return serverReady && moduleInstalled
     }
 
-    private fun ensureServer(context: Context): File = synchronized(lock) {
+    private fun ensureServer(context: Context): LocalServerSocket = synchronized(lock) {
         val existing = server
-        val existingPath = serverPath
-        if (existing != null && existingPath != null && existingPath.exists()) return existingPath
+        if (existing != null) return existing
 
-        val socketFile = File(context.filesDir, SOCKET_FILE_NAME)
-        if (socketFile.exists()) check(socketFile.delete()) { "Could not remove stale Android DNS socket." }
-        val listener = LocalServerSocket(
-            LocalSocketAddress(socketFile.absolutePath, LocalSocketAddress.Namespace.FILESYSTEM)
-        )
+        val listener = LocalServerSocket(SOCKET_NAME)
         server = listener
-        serverPath = socketFile
         Thread({ acceptLoop(listener, context) }, "OpenCode-Android-DNS-accept").apply {
             isDaemon = true
             start()
         }
-        socketFile
+        listener
     }
 
     private fun acceptLoop(listener: LocalServerSocket, context: Context) {
@@ -95,7 +82,6 @@ object AndroidDnsResolver {
         synchronized(lock) {
             if (server === listener) {
                 server = null
-                serverPath = null
             }
         }
         runCatching { listener.close() }
@@ -104,6 +90,7 @@ object AndroidDnsResolver {
     private fun handleRequest(client: LocalSocket, context: Context) {
         client.use { socket ->
             runCatching {
+                if (socket.peerCredentials.uid != Process.myUid()) return@runCatching
                 socket.soTimeout = 3_000
                 val request = socket.inputStream.bufferedReader(Charsets.US_ASCII).readLine()
                     ?: return@runCatching
@@ -148,7 +135,7 @@ object AndroidDnsResolver {
     private fun resolveOnAndroidNetwork(context: Context, hostname: String): List<InetAddress> {
         val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val network = runCatching { connectivity?.activeNetwork }.getOrNull()
-        return if (network != null) network.getAllByName(hostname) else InetAddress.getAllByName(hostname)
+        return if (network != null) network.getAllByName(hostname).toList() else InetAddress.getAllByName(hostname).toList()
     }
 
     private fun isValidHostname(hostname: String): Boolean {

@@ -12,7 +12,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-#define ANDROID_DNS_SOCKET "/tmp/opencode-android-dns.sock"
+#define ANDROID_DNS_SOCKET "io.github.mohammedteir.opencodemobile.android-dns"
 #define MAX_HOSTNAME 253
 #define MAX_RESPONSE 4096
 #define MAX_ADDRESSES 64
@@ -48,8 +48,11 @@ static enum nss_status lookup_android(const char *name, int family,
     struct sockaddr_un address;
     memset(&address, 0, sizeof(address));
     address.sun_family = AF_UNIX;
-    snprintf(address.sun_path, sizeof(address.sun_path), "%s", ANDROID_DNS_SOCKET);
-    if (connect(fd, (struct sockaddr *)&address, sizeof(address)) != 0) {
+    address.sun_path[0] = '\0';
+    snprintf(address.sun_path + 1, sizeof(address.sun_path) - 1, "%s", ANDROID_DNS_SOCKET);
+    socklen_t socket_address_length = (socklen_t)(offsetof(struct sockaddr_un, sun_path) +
+                                                  1 + strlen(ANDROID_DNS_SOCKET));
+    if (connect(fd, (struct sockaddr *)&address, socket_address_length) != 0) {
         *errnop = errno;
         *h_errnop = NO_RECOVERY;
         close(fd);
