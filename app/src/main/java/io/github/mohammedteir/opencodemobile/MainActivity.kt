@@ -608,7 +608,43 @@ class MainActivity : ComponentActivity() {
                                 # This checks transport and TLS only, not provider API health or authentication.
                                 metrics=$(curl -sS -I -L -o /dev/null \
                                     -w "%{http_code}|%{remote_ip}|%{time_connect}|%{time_appconnect}|%{ssl_verify_result}" \
-                                    --connect-timeout 8 --max-time 20 "${'
+                                    --connect-timeout 8 --max-time 20 "${'$'}url" 2>/dev/null)
+                                rc=$?
+                                old_ifs=${'$'}IFS
+                                IFS='|'
+                                set -- ${'$'}metrics
+                                IFS=${'$'}old_ifs
+                                http_code=${'$'}{1:-000}
+                                remote_ip=${'$'}{2:-}
+                                time_connect=${'$'}{3:-0}
+                                time_appconnect=${'$'}{4:-0}
+                                ssl_verify=${'$'}{5:-unknown}
+                                tcp_connected=$(awk -v value="${'$'}time_connect" 'BEGIN { print (value + 0 > 0) ? 1 : 0 }')
+                                tls_connected=$(awk -v value="${'$'}time_appconnect" 'BEGIN { print (value + 0 > 0) ? 1 : 0 }')
+
+                                # A verified TLS session plus an HTTP status proves transport even if curl
+                                # reports a later timeout while following redirects or finishing the request.
+                                if [ "${'$'}http_code" != "000" ] && [ "${'$'}ssl_verify" = "0" ] && [ "${'$'}tls_connected" = "1" ]; then
+                                    if [ "${'$'}rc" -eq 0 ]; then
+                                        echo "HTTPS_TRANSPORT_OK ${'$'}url HTTP=${'$'}http_code REMOTE=${'$'}remote_ip TLS_VERIFY=OK (API health/authentication not tested)"
+                                    else
+                                        echo "HTTPS_TRANSPORT_OK ${'$'}url HTTP=${'$'}http_code REMOTE=${'$'}remote_ip TLS_VERIFY=OK NOTE=curl_exit_${'$'}rc_after_http_response (API health/authentication not tested)"
+                                    fi
+                                else
+                                    https_failures=$((https_failures + 1))
+                                    if [ "${'$'}ssl_verify" != "unknown" ] && [ "${'$'}ssl_verify" != "0" ]; then
+                                        phase="TLS certificate verification failed"
+                                    elif [ "${'$'}tcp_connected" = "1" ] && [ "${'$'}tls_connected" = "0" ]; then
+                                        phase="TLS handshake failed after TCP connection"
+                                    elif [ -z "${'$'}remote_ip" ] || [ "${'$'}tcp_connected" = "0" ]; then
+                                        phase="DNS or TCP connection failed (see DNS checks above)"
+                                    elif [ "${'$'}http_code" = "000" ]; then
+                                        phase="TLS connected but no HTTP response was received"
+                                    else
+                                        phase="HTTPS request failed (curl exit ${'$'}rc)"
+                                    fi
+                                    echo "HTTPS_TRANSPORT_FAIL ${'$'}url phase=${'$'}phase curl_exit=${'$'}rc HTTP=${'$'}http_code REMOTE=${'$'}{remote_ip:-none} TLS_VERIFY=${'$'}ssl_verify"
+                                fi
                             done
                         else
                             echo "HTTPS_SKIPPED curl is not installed yet; rerun this check after package installation."
