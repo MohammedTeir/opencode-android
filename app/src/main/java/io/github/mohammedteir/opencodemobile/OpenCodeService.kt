@@ -26,6 +26,7 @@ class OpenCodeService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private val starting = AtomicBoolean(false)
     @Volatile private var sharedStorageEnabledAtStart = false
+    @Volatile private var eventNotifications: OpenCodeEventNotifications? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -80,6 +81,8 @@ class OpenCodeService : Service() {
 
     private fun startServer() {
         if (!starting.compareAndSet(false, true)) return
+        eventNotifications?.close()
+        eventNotifications = OpenCodeEventNotifications(this, SecretStore.getOrCreate(this)).also { it.start() }
         Thread {
             var backoffMs = 1_000L
             try {
@@ -153,6 +156,8 @@ class OpenCodeService : Service() {
 
     private fun stopServer() {
         stopping = true
+        eventNotifications?.close()
+        eventNotifications = null
         val child = process
         process = null
         runCatching { if (wakeLock?.isHeld == true) wakeLock?.release() }

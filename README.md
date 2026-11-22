@@ -60,6 +60,11 @@ On a physical ARM64 device, verify M1–M4 in order, including rootfs symlinks, 
 Before public distribution, M1–M4 must pass on real devices, the release signing key must have a secure backup, application ID/versioning must be finalized, and third-party license/source obligations and merged notices must be addressed.
 
 
+## Native Android activity notifications
+
+While the OpenCode foreground service is running, the app subscribes to the authenticated local OpenCode server event stream at `/global/event`. It translates task completion, task failure, permission requests, and supported question/form requests into native Android notifications. The listener runs independently of the WebView, reconnects after stream interruptions, and stops with the server service. Activity notifications are suppressed while the app is in the foreground to avoid duplicating in-app feedback. Android 13+ requires the user to grant notification permission; the separate **OpenCode activity** notification channel can be controlled in Android app notification settings. Tapping an activity notification returns to the OpenCode workspace.
+
+
 ## Workspace locations
 
 OpenCode Mobile supports two selectable workspace roots:
