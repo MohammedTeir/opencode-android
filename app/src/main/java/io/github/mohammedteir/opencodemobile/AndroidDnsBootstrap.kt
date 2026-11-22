@@ -101,7 +101,7 @@ object AndroidDnsBootstrap {
         val rootfs = monitoredRootfs ?: return
         refreshExecutor.schedule({
             if (refreshGeneration.get() != generation) return@schedule
-            refresh(context, rootfs) { message -> Log.i("OpenCodeDns", message) }
+            refresh(context, rootfs) { message -> android.util.Log.i("OpenCodeDns", message) }
         }, 350, TimeUnit.MILLISECONDS)
     }
 
