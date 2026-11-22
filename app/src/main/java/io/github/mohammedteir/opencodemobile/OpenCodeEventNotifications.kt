@@ -165,7 +165,8 @@ class OpenCodeEventNotifications(
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
             .build()
-        manager.notify("opencode-session-$sessionID", NOTIFICATION_ID_BASE + (eventID.hashCode() and 0x3fffffff), notification)
+        val notificationKey = "$type:$sessionID"
+        manager.notify("opencode-$notificationKey", NOTIFICATION_ID_BASE + (notificationKey.hashCode() and 0x3fffffff), notification)
     }
 
     private fun createChannel() {
