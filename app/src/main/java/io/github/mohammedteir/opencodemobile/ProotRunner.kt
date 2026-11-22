@@ -14,6 +14,9 @@ object ProotRunner {
     ): Process {
         val libDir = File(context.applicationInfo.nativeLibraryDir)
         val root = File(context.filesDir, "rootfs")
+        val androidDnsSocket = AndroidDnsResolver.prepare(context, root) { message ->
+            Log.i("OpenCodeDns", message)
+        }
         AndroidDnsBootstrap.refresh(context, root) { message -> Log.i("OpenCodeDns", message) }
         val tmp = File(context.filesDir, "tmp").apply { mkdirs() }
         val args = mutableListOf(
@@ -22,6 +25,9 @@ object ProotRunner {
             "-r", root.absolutePath,
             "-b", "/dev", "-b", "/proc", "-b", "/sys"
         )
+        if (androidDnsSocket != null) {
+            args += listOf("-b", "${androidDnsSocket.absolutePath}:/tmp/opencode-android-dns.sock")
+        }
         val hostStorage = if (includeSharedStorage == false) null else StorageAccessManager.sharedStorageDirectory()
         if (hostStorage != null) {
             val targets = StorageAccessManager.prepareMountTargets(root)

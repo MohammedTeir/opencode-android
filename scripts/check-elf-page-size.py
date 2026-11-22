@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate 16 KB page-size compatibility of native ELF libraries in an APK."""
+"""Validate 16 KB page-size compatibility of native ELF libraries and resolver assets in an APK."""
 
 from __future__ import annotations
 
@@ -71,7 +71,8 @@ def main() -> int:
         with zipfile.ZipFile(args.apk) as apk:
             libraries = sorted(
                 item for item in apk.namelist()
-                if item.startswith("lib/") and item.endswith(".so")
+                if (item.startswith("lib/") and item.endswith(".so"))
+                or (item.startswith("assets/") and ".so" in Path(item).name)
             )
             if not libraries:
                 print(f"ERROR: no native .so libraries found in {args.apk}", file=sys.stderr)
