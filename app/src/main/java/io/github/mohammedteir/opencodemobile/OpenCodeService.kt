@@ -220,8 +220,12 @@ class OpenCodeService : Service() {
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL_ID) else Notification.Builder(this)
         return builder
             .setSmallIcon(R.drawable.ic_stat_opencode)
-            // Keep the ongoing notification minimal: app identity and the Stop action only.
-            // Android supplies the app label; avoid redundant body text and oversized launcher artwork.
+            .setContentTitle("OpenCode Mobile")
+            .setContentText("Your workspace is ready")
+            .setStyle(
+                Notification.BigTextStyle()
+                    .bigText("OpenCode is running in the background. Return to the app to continue working.")
+            )
             .setCategory(Notification.CATEGORY_SERVICE)
             .setPriority(Notification.PRIORITY_LOW)
             .setOngoing(true)
