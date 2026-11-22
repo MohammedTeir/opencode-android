@@ -52,7 +52,7 @@ class OpenCodeEventNotifications(
         while (running.get()) {
             try {
                 val request = Request.Builder()
-                    .url("http://127.0.0.1:4096/global/event")
+                    .url("http://127.0.0.1:4096/api/event")
                     .header("Authorization", Credentials.basic("opencode", password))
                     .header("Accept", "text/event-stream")
                     .header("Cache-Control", "no-cache")
@@ -66,6 +66,7 @@ class OpenCodeEventNotifications(
                     val reader = response.body?.charStream()?.buffered()
                         ?: throw IOException("OpenCode event stream returned an empty body")
                     retryMs = 1_000L
+                    Log.i(TAG, "Connected to OpenCode event stream")
                     var payload = StringBuilder()
                     while (running.get()) {
                         val line = reader.readLine() ?: break
@@ -105,17 +106,18 @@ class OpenCodeEventNotifications(
         val sessionID = data.optString("sessionID").ifBlank {
             data.optJSONObject("form")?.optString("sessionID").orEmpty()
         }
-        if (sessionID.isBlank()) return
+        if (sessionID.isBlank()) {
+            Log.d(TAG, "Ignored event without session ID: $type")
+            return
+        }
 
         val details = when (type) {
-            "session.execution.succeeded", "session.idle" ->
+            "session.execution.succeeded" ->
                 "Your OpenCode task has finished."
-            "session.execution.failed", "session.error" ->
+            "session.execution.failed" ->
                 "An OpenCode task encountered an error."
             "permission.asked" ->
                 "OpenCode is waiting for permission."
-            "question.asked" ->
-                "OpenCode is waiting for your answer."
             "form.created" -> {
                 val form = data.optJSONObject("form") ?: return
                 val kind = form.optJSONObject("metadata")?.optString("kind").orEmpty()
@@ -126,8 +128,8 @@ class OpenCodeEventNotifications(
             else -> return
         }
 
-        if (MainActivity.isForeground) return
         val eventID = event.optString("id").ifBlank { "$type:$sessionID:${System.currentTimeMillis()}" }
+        Log.i(TAG, "Received activity event: $type for session ${sessionID.take(12)}")
         postNotification(eventID, sessionID, type, details)
     }
 
@@ -150,9 +152,17 @@ class OpenCodeEventNotifications(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val title = when (type) {
-            "session.execution.succeeded", "session.idle" -> "OpenCode · Task completed"
-            "session.execution.failed", "session.error" -> "OpenCode · Task failed"
+            "session.execution.succeeded" -> "OpenCode · Task completed"
+            "session.execution.failed" -> "OpenCode · Task failed"
             else -> "OpenCode · Action required"
+        }
+        if (!manager.areNotificationsEnabled()) {
+            Log.w(TAG, "App notifications are disabled in Android settings")
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 26 && manager.getNotificationChannel(CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE) {
+            Log.w(TAG, "OpenCode activity notification channel is disabled")
+            return
         }
         val notification = Notification.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_opencode)
@@ -167,6 +177,7 @@ class OpenCodeEventNotifications(
             .build()
         val notificationKey = "$type:$sessionID"
         manager.notify("opencode-$notificationKey", NOTIFICATION_ID_BASE + (notificationKey.hashCode() and 0x3fffffff), notification)
+        Log.i(TAG, "Posted Android activity notification: $type")
     }
 
     private fun createChannel() {
