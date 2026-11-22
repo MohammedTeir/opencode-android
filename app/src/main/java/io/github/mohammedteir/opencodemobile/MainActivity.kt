@@ -103,6 +103,11 @@ class MainActivity : ComponentActivity() {
         buildSetupScreen()
         StartupDiagnostics.mark(this, "Setup screen built")
         refreshButtons()
+        if (!setup.isReady()) {
+            content.post {
+                if (!isFinishing && !setup.isReady()) runFullSetup()
+            }
+        }
         StartupDiagnostics.mark(this, "MainActivity.onCreate completed")
     }
 

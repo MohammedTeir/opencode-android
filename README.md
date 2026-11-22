@@ -1,6 +1,6 @@
 # OpenCode Mobile
 
-A native Android app that packages ARM64 PRoot, the Debian Bookworm ARM64 root filesystem, and the original OpenCode V2 CLI in one installable APK. First launch extracts the bundled runtime, starts the V2 web/API server in a foreground service, and displays its loopback web UI in an authenticated WebView. No Termux or separate Debian/OpenCode app is required. The Debian and OpenCode archives are fetched and SHA-256 verified during APK builds, not downloaded by the phone during initial extraction. **The current installer still uses APT over the network to install baseline Linux tools (Git, ripgrep, curl, CA certificates, procps, OpenSSH client, and unzip); fully offline initialization is not complete yet.**
+A native Android app that packages ARM64 PRoot, the Debian Bookworm ARM64 root filesystem, and the original OpenCode V2 CLI in one installable APK. On first open, the app automatically extracts the bundled runtime and runs its resumable setup; after setup it starts the V2 web/API server in a foreground service and displays its loopback web UI in an authenticated WebView. No Termux or separate Debian/OpenCode app is required. The Debian and OpenCode archives are fetched and SHA-256 verified during APK builds, not downloaded by the phone during initial extraction. **The current installer still uses APT over the network to install baseline Linux tools (Git, ripgrep, curl, CA certificates, procps, OpenSSH client, and unzip); fully offline initialization is not complete yet.**
 
 ## Scope and milestones
 
