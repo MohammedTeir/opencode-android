@@ -56,7 +56,7 @@ internal class ActivityLogStore(context: Context) {
             val time = decoded.substring(0, split).toLong()
             val raw = decoded.substring(split + 1).trimEnd()
             val lines = raw.lines().filter { it.isNotBlank() }
-            val first = lines.firstOrNull() ?: return@mapNotNull null
+            val first = lines.firstOrNull() ?: error("Empty activity event")
             val lower = raw.lowercase(Locale.ROOT)
             val severity = when {
                 listOf("fatal", "exception", "failed", "failure", "permission denied", "could not").any { lower.contains(it) } -> EventSeverity.ERROR
@@ -124,7 +124,7 @@ internal class ActivityLogConsole(
         eventList = RecyclerView(context).apply {
             layoutManager = LinearLayoutManager(context); adapter = this@ActivityLogConsole.adapter; itemAnimator = null
         }
-        addView(eventList, if (fullScreenAllowed) LayoutParams(-1, dp(250)) else LayoutParams(-1, 0, 1f))
+        addView(eventList, if (fullScreenAllowed) LayoutParams(-1, dp(210)) else LayoutParams(-1, 0, 1f))
         val actions = row().apply { setPadding(0, dp(7), 0, 0) }
         addAction(actions, "Copy") { copy() }
         addAction(actions, "Export") { export() }
