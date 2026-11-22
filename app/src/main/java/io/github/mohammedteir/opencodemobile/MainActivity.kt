@@ -596,9 +596,8 @@ class MainActivity : ComponentActivity() {
                         https_failures=0
                         if command -v curl >/dev/null 2>&1; then
                             for url in https://generativelanguage.googleapis.com/ https://api.openai.com/ https://api.anthropic.com/ https://github.com/; do
-                                # curl exit status, TLS verification, and HTTP status are separate signals.
-                                # A 401/404/421 response still proves an HTTP response was received;
-                                # it does not prove that the provider API or credentials work.
+                                # A 401/404/421 still proves an HTTP response was received.
+                                # It does not prove that the provider API or credentials work.
                                 metrics=$(curl -sS -o /dev/null \
                                     -w "%{http_code}|%{remote_ip}|%{time_connect}|%{time_appconnect}|%{ssl_verify_result}" \
                                     --connect-timeout 8 --max-time 15 "${'
@@ -614,7 +613,7 @@ class MainActivity : ComponentActivity() {
                 val runtimeNeedsAttention = result.contains("[MISSING]") ||
                     result.contains("[DEGRADED]") || result.contains("[INCOMPLETE]")
                 val dnsFailed = result.contains("DNS_FAIL")
-                val httpsFailed = result.contains("HTTPS_FAIL")
+                val httpsFailed = result.contains("HTTPS_TRANSPORT_FAIL")
                 status.text = when {
                     runtimeNeedsAttention -> "Runtime components need attention · inspect activity"
                     dnsFailed -> "PRoot works · DNS needs attention"
@@ -10784,7 +10783,7 @@ class MainActivity : ComponentActivity() {
         private const val REQUEST_NOTIFICATIONS = 46
     }
 }
-}remote_ip TLS_VERIFY=OK (HTTP response received; API health/authentication not tested)"
+}remote_ip TLS_VERIFY=OK (API health/authentication not tested)"
                                 else
                                     https_failures=$((https_failures + 1))
                                     if [ "${'
