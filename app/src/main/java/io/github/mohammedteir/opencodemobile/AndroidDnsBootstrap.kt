@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import java.io.File
 import java.net.InetAddress
 import java.nio.file.Files
@@ -12,6 +14,7 @@ import java.nio.file.StandardCopyOption
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Keeps Debian's resolver aligned with Android's active network.
@@ -25,6 +28,15 @@ import java.util.concurrent.TimeUnit
 object AndroidDnsBootstrap {
     private const val HOSTS_MARKER_START = "# OPENCODE-MOBILE-ANDROID-DNS-START"
     private const val HOSTS_MARKER_END = "# OPENCODE-MOBILE-ANDROID-DNS-END"
+    private const val RESOLVER_HEADER = "# Managed by OpenCode Mobile from Android active-network LinkProperties"
+    private val monitorLock = Any()
+    private val refreshGeneration = AtomicLong(0)
+    private val refreshExecutor = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "OpenCode-Android-DNS-refresh").apply { isDaemon = true }
+    }
+    @Volatile private var monitoredContext: Context? = null
+    @Volatile private var monitoredRootfs: File? = null
+    @Volatile private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     data class Snapshot(
         val networkAvailable: Boolean,
@@ -49,37 +61,108 @@ object AndroidDnsBootstrap {
         )
     }
 
+    /**
+     * Monitor Android's default network for the lifetime of the app process.
+     * All callbacks enqueue a debounced refresh; the refresh always re-reads
+     * activeNetwork rather than trusting the Network delivered by an old callback.
+     */
+    fun startNetworkMonitoring(context: Context, rootfs: File, log: (String) -> Unit = {}) {
+        val appContext = context.applicationContext
+        val connectivity = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        if (connectivity == null) {
+            log("Android DNS monitor unavailable: ConnectivityManager is missing.")
+            return
+        }
+        synchronized(monitorLock) {
+            monitoredContext = appContext
+            monitoredRootfs = rootfs
+            if (networkCallback == null) {
+                val callback = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) = scheduleMonitoredRefresh()
+                    override fun onLost(network: Network) = scheduleMonitoredRefresh()
+                    override fun onLinkPropertiesChanged(network: Network, linkProperties: android.net.LinkProperties) =
+                        scheduleMonitoredRefresh()
+                }
+                try {
+                    connectivity.registerDefaultNetworkCallback(callback)
+                    networkCallback = callback
+                    log("Android active-network DNS monitoring started.")
+                } catch (error: Exception) {
+                    log("Android DNS monitor could not register: ${error.message}")
+                }
+            }
+        }
+        scheduleMonitoredRefresh()
+    }
+
+    private fun scheduleMonitoredRefresh() {
+        val generation = refreshGeneration.incrementAndGet()
+        val context = monitoredContext ?: return
+        val rootfs = monitoredRootfs ?: return
+        refreshExecutor.schedule({
+            if (refreshGeneration.get() != generation) return@schedule
+            refresh(context, rootfs) { message -> Log.i("OpenCodeDns", message) }
+        }, 350, TimeUnit.MILLISECONDS)
+    }
+
     @Synchronized
     fun refresh(context: Context, rootfs: File, log: (String) -> Unit = {}) {
+        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = runCatching { connectivity?.activeNetwork }.getOrNull()
+        val properties = runCatching { if (network != null) connectivity?.getLinkProperties(network) else null }.getOrNull()
+        val dnsServers = properties?.dnsServers.orEmpty()
+            .mapNotNull { address -> address.hostAddress?.substringBefore('%') }
+            .filter(DnsAddressValidator::isUsable)
+            .distinct()
+        val state = Snapshot(
+            networkAvailable = network != null,
+            dnsServers = dnsServers,
+            privateDnsActive = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && properties?.isPrivateDnsActive == true,
+            privateDnsServerName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) properties?.privateDnsServerName else null
+        )
+
         val etc = File(rootfs, "etc").toPath()
         if (!Files.isDirectory(etc, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(etc)) {
             log("Android DNS refresh skipped: Debian /etc is unavailable.")
             return
         }
 
-        val state = snapshot(context)
-        val resolv = etc.resolve("resolv.conf")
-        if (state.dnsServers.isEmpty()) {
-            log(
-                "Android DNS refresh: no usable DNS servers were advertised by the active network; " +
-                    "existing Debian resolver configuration was preserved."
-            )
-        } else {
-            val resolverContent = buildString {
-                append("# Managed by OpenCode Mobile from Android active-network LinkProperties\n")
-                state.dnsServers.forEach { append("nameserver ").append(it).append('\n') }
-                append("options timeout:2 attempts:2 rotate\n")
-            }
-            runCatching {
-                if (Files.isSymbolicLink(resolv)) Files.delete(resolv)
-                writeAtomically(resolv, resolverContent)
-            }.onFailure {
-                log("Android DNS refresh could not update resolv.conf: " + it.message)
-            }
+        // Do not apply a DNS snapshot after Android has already switched networks.
+        if (connectivity?.activeNetwork != network) {
+            log("Android DNS refresh skipped: active network changed while reading DNS configuration.")
+            scheduleMonitoredRefresh()
+            return
         }
 
-        val connectivity = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-        val network = runCatching { connectivity?.activeNetwork }.getOrNull()
+        val resolv = etc.resolve("resolv.conf")
+        runCatching {
+            val existing = if (Files.exists(resolv, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(resolv)) {
+                String(Files.readAllBytes(resolv), Charsets.UTF_8)
+            } else ""
+            // Replace every old nameserver (including manually configured public DNS),
+            // while retaining search/domain/options and other administrator directives.
+            val preservedLines = existing.lineSequence()
+                .filterNot { it.trimStart().startsWith("nameserver ") }
+                .filterNot { it.trim() == RESOLVER_HEADER }
+                .toMutableList()
+            if (preservedLines.none { it.trimStart().startsWith("options ") }) {
+                preservedLines += "options timeout:2 attempts:2 rotate"
+            }
+            val resolverContent = buildString {
+                append(RESOLVER_HEADER).append('\n')
+                preservedLines.filter(String::isNotBlank).forEach { append(it).append('\n') }
+                state.dnsServers.forEach { append("nameserver ").append(it).append('\n') }
+            }
+            if (connectivity?.activeNetwork != network) {
+                log("Android DNS refresh skipped before write: active network changed.")
+                scheduleMonitoredRefresh()
+            } else {
+                writeAtomically(resolv, resolverContent)
+            }
+        }.onFailure {
+            log("Android DNS refresh could not update resolv.conf: " + it.message)
+        }
+
         val configFile = File(rootfs, "root/.config/opencode/opencode.json")
         val configText = runCatching { if (configFile.isFile) configFile.readText() else null }.getOrNull()
         val endpointHosts = OpenCodeEndpointHosts.collect(configText)
@@ -89,8 +172,7 @@ object AndroidDnsBootstrap {
                 endpointHosts.map { host ->
                     Callable {
                         val entries = runCatching {
-                            val addresses = if (network != null) network.getAllByName(host)
-                                else InetAddress.getAllByName(host)
+                            val addresses = if (network != null) network.getAllByName(host) else emptyArray()
                             addresses.filterNot { address ->
                                 address.isAnyLocalAddress || address.isLoopbackAddress ||
                                     address.isLinkLocalAddress || address.isMulticastAddress
@@ -111,6 +193,11 @@ object AndroidDnsBootstrap {
 
         val hosts = etc.resolve("hosts")
         runCatching {
+            if (connectivity?.activeNetwork != network) {
+                log("Android endpoint-host refresh skipped: active network changed.")
+                scheduleMonitoredRefresh()
+                return@runCatching
+            }
             if (Files.isSymbolicLink(hosts)) Files.delete(hosts)
             val existing = if (Files.exists(hosts, LinkOption.NOFOLLOW_LINKS)) {
                 String(Files.readAllBytes(hosts), Charsets.UTF_8)
@@ -133,10 +220,13 @@ object AndroidDnsBootstrap {
         }
 
         log(
-            "Android DNS refresh: " + state.dnsServers.size + " upstream DNS server(s); " +
+            "Android DNS refresh: " + state.dnsServers.size + " active-network DNS server(s); " +
                 resolvedEntries.size + " Android-resolved OpenCode endpoint address record(s); " +
                 failedLookups + " endpoint lookup(s) failed."
         )
+        if (!state.networkAvailable) {
+            log("Android has no active network; stale Debian nameserver entries were cleared.")
+        }
         if (state.privateDnsActive) {
             log(
                 "Android Private DNS is active" +
