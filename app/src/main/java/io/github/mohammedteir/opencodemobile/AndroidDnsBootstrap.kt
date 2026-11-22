@@ -4,8 +4,6 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import java.io.File
 import java.net.InetAddress
 import java.nio.file.Files
@@ -100,8 +98,9 @@ object AndroidDnsBootstrap {
         val context = monitoredContext ?: return
         val rootfs = monitoredRootfs ?: return
         refreshExecutor.schedule({
-            if (refreshGeneration.get() != generation) return@schedule
-            refresh(context, rootfs) { message -> android.util.Log.i("OpenCodeDns", message) }
+            if (refreshGeneration.get() == generation) {
+                refresh(context, rootfs) { message -> android.util.Log.i("OpenCodeDns", message) }
+            }
         }, 350, TimeUnit.MILLISECONDS)
     }
 
