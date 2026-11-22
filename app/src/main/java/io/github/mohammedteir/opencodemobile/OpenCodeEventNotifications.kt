@@ -52,7 +52,7 @@ class OpenCodeEventNotifications(
         while (running.get()) {
             try {
                 val request = Request.Builder()
-                    .url("http://127.0.0.1:4096/global/event")
+                    .url("http://127.0.0.1:4096/api/event")
                     .header("Authorization", Credentials.basic("opencode", password))
                     .header("Accept", "text/event-stream")
                     .header("Cache-Control", "no-cache")
@@ -66,6 +66,7 @@ class OpenCodeEventNotifications(
                     val reader = response.body?.charStream()?.buffered()
                         ?: throw IOException("OpenCode event stream returned an empty body")
                     retryMs = 1_000L
+                    Log.i(TAG, "Connected to OpenCode event stream")
                     var payload = StringBuilder()
                     while (running.get()) {
                         val line = reader.readLine() ?: break
@@ -101,6 +102,7 @@ class OpenCodeEventNotifications(
     private fun handleEvent(raw: String) {
         val event = runCatching { JSONObject(raw) }.getOrNull() ?: return
         val type = event.optString("type")
+        Log.d(TAG, "Received OpenCode event: $type")
         val data = event.optJSONObject("data") ?: JSONObject()
         val sessionID = data.optString("sessionID").ifBlank {
             data.optJSONObject("form")?.optString("sessionID").orEmpty()
@@ -126,7 +128,10 @@ class OpenCodeEventNotifications(
             else -> return
         }
 
-        if (MainActivity.isForeground) return
+        if (MainActivity.isForeground) {
+            Log.d(TAG, "Skipping $type notification because the app is foregrounded")
+            return
+        }
         val eventID = event.optString("id").ifBlank { "$type:$sessionID:${System.currentTimeMillis()}" }
         postNotification(eventID, sessionID, type, details)
     }
@@ -167,6 +172,7 @@ class OpenCodeEventNotifications(
             .build()
         val notificationKey = "$type:$sessionID"
         manager.notify("opencode-$notificationKey", NOTIFICATION_ID_BASE + (notificationKey.hashCode() and 0x3fffffff), notification)
+        Log.i(TAG, "Posted native notification for $type")
     }
 
     private fun createChannel() {
