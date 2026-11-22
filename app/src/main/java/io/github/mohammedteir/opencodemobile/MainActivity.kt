@@ -522,9 +522,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshButtons() {
-        setupButton.isEnabled = !setup.isReady()
-        setupButton.text = if (setup.hasRootfs()) "Continue setup" else "Set up"
-        smokeButton.isEnabled = setup.hasRootfs()
+        val setupReady = setup.isReady()
+        val rootfsInstalled = setup.hasRootfs()
+        setupButton.isEnabled = !setupReady
+        setupButton.text = when {
+            setupReady -> "Setup complete"
+            rootfsInstalled -> "Continue setup"
+            else -> "Set up"
+        }
+        setupButton.contentDescription = when {
+            setupReady -> "Setup complete. OpenCode is installed and ready to launch."
+            rootfsInstalled -> "Continue installing OpenCode components."
+            else -> "Set up Debian, PRoot, and OpenCode."
+        }
+        smokeButton.isEnabled = rootfsInstalled
         serverButton.isEnabled = setup.isReady()
         updateButton.isEnabled = setup.isReady()
         repairPackagesButton.isEnabled = setup.hasRootfs() && !OpenCodeService.isRunning
