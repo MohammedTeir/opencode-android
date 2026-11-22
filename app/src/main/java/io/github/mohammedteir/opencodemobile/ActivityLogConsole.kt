@@ -99,7 +99,7 @@ internal class ActivityLogConsole(
         summary.setPadding(0, dp(5), 0, dp(9))
         addView(summary)
         query = EditText(context).apply {
-            hint = "Search activity…"; textSize = 12f; singleLine = true
+            hint = "Search activity…"; textSize = 12f; setSingleLine(true)
             setTextColor(Color.parseColor("#F1ECEC")); setHintTextColor(Color.parseColor("#827B7B"))
             setPadding(dp(10), 0, dp(10), 0); background = rounded("#211E1E", 10, "#393333")
         }
