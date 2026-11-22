@@ -638,12 +638,34 @@ class MainActivity : ComponentActivity() {
                             fi
                         fi
                     """.trimIndent()
+                    val hosts = listOf(
+                        "generativelanguage.googleapis.com",
+                        "api.openai.com",
+                        "api.anthropic.com",
+                        "github.com",
+                        "deb.debian.org"
+                    )
+                    val androidDns = AndroidDnsBootstrap.snapshot(this@MainActivity)
+                    val androidDnsReport = buildString {
+                        appendLine("=== Android active-network DNS ===")
+                        appendLine("NETWORK_AVAILABLE ${androidDns.networkAvailable}")
+                        appendLine("DNS_SERVERS ${androidDns.dnsServers.joinToString(", ").ifBlank { "none" }}")
+                        appendLine("PRIVATE_DNS_ACTIVE ${androidDns.privateDnsActive}")
+                        appendLine("PRIVATE_DNS_SERVER ${androidDns.privateDnsServerName ?: "not reported"}")
+                        hosts.forEach { host ->
+                            val addresses = runCatching {
+                                AndroidDnsBootstrap.resolveOnActiveNetwork(this@MainActivity, host)
+                            }.getOrElse { emptyList() }
+                            if (addresses.isEmpty()) appendLine("ANDROID_DNS_FAIL $host")
+                            else appendLine("ANDROID_DNS_OK $host ${addresses.joinToString(",")}")
+                        }
+                    }.trimEnd()
                     val inventory = RuntimeManager(this@MainActivity).inspect().report()
                     val p = ProotRunner.start(this@MainActivity, listOf("/bin/sh", "-c", script))
                     val output = p.inputStream.bufferedReader().readText().trim()
                     val code = p.waitFor()
                     check(code == 0) { "PRoot diagnostic command failed (exit $code): $output" }
-                    "$inventory\n\n=== Network diagnostics ===\n$output"
+                    "$inventory\n\n$androidDnsReport\n\n=== PRoot DNS and HTTPS diagnostics ===\n$output"
                 }
                 appendLog("Runtime and network diagnostics completed.\n${result}\n")
                 val runtimeNeedsAttention = result.contains("[MISSING]") ||
