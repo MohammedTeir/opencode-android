@@ -18,6 +18,7 @@ object ProotRunner {
             Log.i("OpenCodeDns", message)
         }
         AndroidDnsBootstrap.refresh(context, root) { message -> Log.i("OpenCodeDns", message) }
+        AndroidDnsBootstrap.startNetworkMonitoring(context, root) { message -> Log.i("OpenCodeDns", message) }
         val tmp = File(context.filesDir, "tmp").apply { mkdirs() }
         val args = mutableListOf(
             File(libDir, "libproot.so").absolutePath,
