@@ -592,15 +592,44 @@ class MainActivity : ComponentActivity() {
                             fi
                         done
                         echo
-                        echo "=== HTTPS connectivity ==="
+                        echo "=== HTTPS transport diagnostics (not API health/authentication tests) ==="
+                        https_failures=0
                         if command -v curl >/dev/null 2>&1; then
-                            for url in https://generativelanguage.googleapis.com/ https://api.openai.com/ https://github.com/; do
-                                result=$(curl -sS -o /dev/null -w "HTTP %{http_code}" --connect-timeout 8 --max-time 15 "${'$'}url" 2>&1)
+                            for url in https://generativelanguage.googleapis.com/ https://api.openai.com/ https://api.anthropic.com/ https://github.com/; do
+                                # HTTP error statuses still prove an HTTP response was received.
+                                # They do not prove provider API health or successful authentication.
+                                metrics=$(curl -sS -o /dev/null \
+                                    -w "%{http_code}|%{remote_ip}|%{time_connect}|%{time_appconnect}|%{ssl_verify_result}" \
+                                    --connect-timeout 8 --max-time 15 "${'$'}url" 2>/dev/null)
                                 rc=$?
-                                if [ "${'$'}rc" -eq 0 ]; then
-                                    echo "HTTPS_OK ${'$'}url ${'$'}result"
+                                old_ifs=${'$'}IFS
+                                IFS='|'
+                                set -- ${'$'}metrics
+                                IFS=${'$'}old_ifs
+                                http_code=${'$'}{1:-000}
+                                remote_ip=${'$'}{2:-}
+                                time_connect=${'$'}{3:-0}
+                                time_appconnect=${'$'}{4:-0}
+                                ssl_verify=${'$'}{5:-unknown}
+                                tcp_connected=$(awk -v value="${'$'}time_connect" 'BEGIN { print (value + 0 > 0) ? 1 : 0 }')
+                                tls_connected=$(awk -v value="${'$'}time_appconnect" 'BEGIN { print (value + 0 > 0) ? 1 : 0 }')
+
+                                if [ "${'$'}rc" -eq 0 ] && [ "${'$'}http_code" != "000" ] && [ "${'$'}ssl_verify" = "0" ]; then
+                                    echo "HTTPS_TRANSPORT_OK ${'$'}url HTTP=${'$'}http_code REMOTE=${'$'}remote_ip TLS_VERIFY=OK (API health/authentication not tested)"
                                 else
-                                    echo "HTTPS_FAIL ${'$'}url (curl exit ${'$'}rc): ${'$'}result"
+                                    https_failures=$((https_failures + 1))
+                                    if [ "${'$'}ssl_verify" != "unknown" ] && [ "${'$'}ssl_verify" != "0" ]; then
+                                        phase="TLS certificate verification failed"
+                                    elif [ "${'$'}tcp_connected" = "1" ] && [ "${'$'}tls_connected" = "0" ]; then
+                                        phase="TLS handshake failed after TCP connection"
+                                    elif [ -z "${'$'}remote_ip" ] || [ "${'$'}tcp_connected" = "0" ]; then
+                                        phase="DNS or TCP connection failed (see DNS checks above)"
+                                    elif [ "${'$'}http_code" = "000" ]; then
+                                        phase="TLS connected but no HTTP response was received"
+                                    else
+                                        phase="HTTPS request failed (curl exit ${'$'}rc)"
+                                    fi
+                                    echo "HTTPS_TRANSPORT_FAIL ${'$'}url phase=${'$'}phase curl_exit=${'$'}rc HTTP=${'$'}http_code REMOTE=${'$'}{remote_ip:-none} TLS_VERIFY=${'$'}ssl_verify"
                                 fi
                             done
                         else
@@ -611,6 +640,13 @@ class MainActivity : ComponentActivity() {
                             echo "DNS_SUMMARY all tested hostnames resolved"
                         else
                             echo "DNS_SUMMARY ${'$'}dns_failures hostname(s) failed; inspect DNS configuration and active Android network"
+                        fi
+                        if command -v curl >/dev/null 2>&1; then
+                            if [ "${'$'}https_failures" -eq 0 ]; then
+                                echo "HTTPS_SUMMARY all tested hosts completed TLS verification and returned HTTP responses; provider API health/authentication was not tested"
+                            else
+                                echo "HTTPS_SUMMARY ${'$'}https_failures host(s) failed transport/TLS checks; inspect the phase reported above"
+                            fi
                         fi
                     """.trimIndent()
                     val inventory = RuntimeManager(this@MainActivity).inspect().report()
@@ -624,13 +660,13 @@ class MainActivity : ComponentActivity() {
                 val runtimeNeedsAttention = result.contains("[MISSING]") ||
                     result.contains("[DEGRADED]") || result.contains("[INCOMPLETE]")
                 val dnsFailed = result.contains("DNS_FAIL")
-                val httpsFailed = result.contains("HTTPS_FAIL")
+                val httpsFailed = result.contains("HTTPS_TRANSPORT_FAIL")
                 status.text = when {
                     runtimeNeedsAttention -> "Runtime components need attention · inspect activity"
                     dnsFailed -> "PRoot works · DNS needs attention"
                     httpsFailed -> "PRoot and DNS work · HTTPS needs attention"
                     result.contains("HTTPS_SKIPPED") -> "PRoot works · DNS checked; HTTPS test unavailable"
-                    else -> "PRoot and network checks passed"
+                    else -> "PRoot, DNS and HTTPS transport checks passed · API authentication not tested"
                 }
             } catch (t: Throwable) {
                 appendLog("Runtime check failed: ${t.message}\n")
