@@ -419,11 +419,6 @@ class MainActivity : ComponentActivity() {
         activityPanel = ActivityLogConsole(this).apply {
             visibility = View.GONE
         }
-        activityPanel.let { console ->
-            if (RootOperationLog.read(this@MainActivity).isNotBlank()) {
-                // Existing root-operation history is imported by the console on first launch.
-            }
-        }
         activityHeader.setOnClickListener {
             val expanded = activityPanel.visibility != View.VISIBLE
             activityPanel.visibility = if (expanded) View.VISIBLE else View.GONE
