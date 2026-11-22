@@ -572,7 +572,7 @@ class MainActivity : ComponentActivity() {
                         echo
                         echo "=== DNS resolution (system resolver; no provider allowlist) ==="
                         dns_failures=0
-                        for host in generativelanguage.googleapis.com api.openai.com api.anthropic.com github.com deb.debian.org; do
+                        for host in example.com iana.org generativelanguage.googleapis.com api.openai.com api.anthropic.com github.com deb.debian.org; do
                             if getent ahosts "${'$'}host" >/dev/null 2>&1; then
                                 echo "DNS_OK ${'$'}host"
                             else
@@ -580,11 +580,16 @@ class MainActivity : ComponentActivity() {
                                 dns_failures=$((dns_failures + 1))
                             fi
                         done
+                        if getent -s android ahosts example.com >/dev/null 2>&1; then
+                            echo "ANDROID_NSS_OK example.com"
+                        else
+                            echo "ANDROID_NSS_FAIL example.com (bridge/module unavailable or Android resolver failed)"
+                        fi
                         echo
                         echo "=== HTTPS transport diagnostics (not API health/authentication tests) ==="
                         https_failures=0
                         if command -v curl >/dev/null 2>&1; then
-                            for url in https://generativelanguage.googleapis.com/ https://api.openai.com/ https://api.anthropic.com/ https://github.com/; do
+                            for url in https://example.com/ https://generativelanguage.googleapis.com/ https://api.openai.com/ https://api.anthropic.com/ https://github.com/; do
                                 # HTTP error statuses still prove an HTTP response was received.
                                 # They do not prove provider API health or successful authentication.
                                 metrics=$(curl -sS -o /dev/null \
@@ -639,6 +644,8 @@ class MainActivity : ComponentActivity() {
                         fi
                     """.trimIndent()
                     val hosts = listOf(
+                        "example.com",
+                        "iana.org",
                         "generativelanguage.googleapis.com",
                         "api.openai.com",
                         "api.anthropic.com",

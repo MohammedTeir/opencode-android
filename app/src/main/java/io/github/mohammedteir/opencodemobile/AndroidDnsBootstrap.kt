@@ -18,9 +18,9 @@ import java.util.concurrent.TimeUnit
  *
  * Some Android/VPN/Private-DNS configurations allow Android's per-network
  * resolver to resolve names but do not allow raw DNS packets from Linux
- * userspace to use the advertised upstream servers. A refreshed hosts-file
- * fallback keeps OpenCode's built-in and user-configured provider endpoints
- * reachable without replacing the user's DNS provider or introducing a proxy.
+ * userspace to use the advertised upstream servers. The Android-backed NSS
+ * bridge handles normal glibc lookups; this refreshed hosts-file fallback keeps
+ * provider endpoints available to software that bypasses glibc NSS.
  */
 object AndroidDnsBootstrap {
     private const val HOSTS_MARKER_START = "# OPENCODE-MOBILE-ANDROID-DNS-START"

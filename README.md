@@ -25,7 +25,7 @@ The runtime diagnostics include a read-only component inventory for the APK-bund
 
 ## Build locally
 
-Requirements: JDK 17 or newer, Android SDK Platform 34, Build Tools 34.0.0, and Gradle 8.9. The Gradle wrapper is included. Only `arm64-v8a` is packaged.
+Requirements: JDK 17 or newer, Android SDK Platform 36, Build Tools 36.0.0, Gradle 8.9, and the AArch64 GNU/Linux cross-compiler (`gcc-aarch64-linux-gnu`) used to build the Debian glibc NSS resolver module. The Gradle wrapper is included. Only `arm64-v8a` is packaged.
 
 ```sh
 ./gradlew assembleDebug
@@ -72,6 +72,6 @@ The workspace picker first asks which filesystem to browse, then lets the user n
 
 ## PRoot network and provider DNS
 
-Before each PRoot process starts, the app refreshes Debian's resolver configuration from Android's active network and resolves OpenCode provider endpoints through Android's per-network resolver. A managed, replaceable block in Debian's `/etc/hosts` provides a fallback when direct DNS packets from Linux userspace cannot use the active network's upstream resolvers. The fallback includes common built-in providers (Gemini, Vertex AI, OpenAI, Anthropic, OpenRouter, Groq, Mistral, Cohere, DeepSeek, xAI) and GitHub endpoints. It also discovers custom provider hosts from `baseURL` / `baseUrl` / `base_url` values in the user's OpenCode configuration.
+Before each PRoot process starts, the app refreshes Debian's resolver configuration and starts a private filesystem Unix-socket bridge. The APK includes a small ARM64 glibc NSS module; the app installs it into Debian and adds `android` to the `hosts:` line in `/etc/nsswitch.conf`. Standard glibc `getaddrinfo`/`getent` lookups ask the Android app to resolve arbitrary hostnames through Android's active-network resolver, then fall back to Debian's configured DNS source when the bridge is unavailable. Android's resolver follows the active network's VPN and Private DNS policy; the app does not force a public resolver, require root, bind a privileged DNS port, or replace an existing VPN.
 
-Provider IP addresses are resolved dynamically by Android; they are not hardcoded. This is a per-launch compatibility fallback, not a continuously running DNS proxy. If a provider rotates CDN addresses during a long-running OpenCode server session, restart the server to refresh the managed records. Normal Debian DNS remains configured through `/etc/resolv.conf` for other hostnames; arbitrary shell/MCP destinations not represented in the provider configuration still depend on direct DNS transport. HTTPS/TLS and provider authentication failures are separate from DNS resolution and are not bypassed by this fallback.
+The bridge resolves each requested hostname dynamically, so shell tools, APT, and applications using the glibc system resolver are not limited to a provider allowlist or a per-launch hostname cache. Provider `/etc/hosts` entries remain as a compatibility fallback for software that bypasses glibc NSS. **This does not intercept software that sends raw DNS packets itself, uses a private DNS-over-HTTPS implementation, or bypasses hostname resolution entirely; those behaviors remain subject to Android/VPN network policy.** Runtime diagnostics test both the Android NSS backend directly (`getent -s android`) and arbitrary hostnames/HTTPS endpoints. A successful DNS lookup does not guarantee that a VPN, captive portal, firewall, TLS policy, or remote service permits the subsequent connection.

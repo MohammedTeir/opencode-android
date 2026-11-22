@@ -7,6 +7,15 @@ val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH")
 val releaseKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
 val releaseKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
 val releaseKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
+val generatedDnsAssets = layout.buildDirectory.dir("generated/androidDnsAssets")
+
+val buildAndroidNssResolver by tasks.registering(Exec::class) {
+    val assetDirectory = generatedDnsAssets.get().asFile
+    inputs.file(rootProject.file("third_party/android-nss-resolver/nss_android.c"))
+    inputs.file(rootProject.file("scripts/build-android-nss-resolver.sh"))
+    outputs.file(assetDirectory.resolve("libnss_android.so.2"))
+    commandLine("bash", rootProject.file("scripts/build-android-nss-resolver.sh").absolutePath, assetDirectory.absolutePath)
+}
 
 android {
     namespace = "io.github.mohammedteir.opencodemobile"
@@ -24,6 +33,8 @@ android {
     packaging {
         jniLibs { useLegacyPackaging = true }
     }
+
+    sourceSets.getByName("main").assets.srcDir(generatedDnsAssets)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -45,6 +56,10 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
     }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn(buildAndroidNssResolver)
 }
 
 dependencies {
