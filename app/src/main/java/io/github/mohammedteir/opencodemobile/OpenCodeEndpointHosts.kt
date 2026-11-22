@@ -24,7 +24,7 @@ internal object OpenCodeEndpointHosts {
     )
 
     private val baseUrlPattern = Regex(
-        """(?i)["'](?:baseURL|baseUrl|base_url)["']\\s*:\\s*["'](https?://[^"'\\s]+)["']"""
+        """(?i)["'](?:baseURL|baseUrl|base_url)["']\s*:\s*["'](https?://[^"'\s]+)["']"""
     )
 
     fun collect(configText: String? = null): List<String> {
