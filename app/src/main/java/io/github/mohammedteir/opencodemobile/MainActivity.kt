@@ -103,13 +103,26 @@ class MainActivity : ComponentActivity() {
         buildSetupScreen()
         StartupDiagnostics.mark(this, "Setup screen built")
         refreshButtons()
+        if (intent?.action == OpenCodeEventNotifications.ACTION_OPEN_WORKSPACE) startServerAndOpen()
         StartupDiagnostics.mark(this, "MainActivity.onCreate completed")
     }
 
     override fun onResume() {
         super.onResume()
+        isForeground = true
         if (::storageStatus.isInitialized) refreshStorageAccessUi()
         if (webView != null) setWorkspaceImmersive(true)
+    }
+
+    override fun onPause() {
+        isForeground = false
+        super.onPause()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == OpenCodeEventNotifications.ACTION_OPEN_WORKSPACE) startServerAndOpen()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -1341,6 +1354,7 @@ class MainActivity : ComponentActivity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     companion object {
+        @Volatile var isForeground: Boolean = false
         private const val SERVER_URL = "http://127.0.0.1:4096"
         private const val REQUEST_FILE = 45
         private const val REQUEST_NOTIFICATIONS = 46
