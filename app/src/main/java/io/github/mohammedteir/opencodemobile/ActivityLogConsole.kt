@@ -31,6 +31,7 @@ internal data class ActivityEvent(val time: Long, val severity: EventSeverity, v
 
 internal class ActivityLogStore(context: Context) {
     private val file = File(context.filesDir, "activity/activity.log")
+    private val legacyMarker = File(context.filesDir, "activity/legacy-imported")
     @Synchronized fun append(value: String) {
         if (value.isBlank()) return
         file.parentFile?.mkdirs()
@@ -40,6 +41,12 @@ internal class ActivityLogStore(context: Context) {
         if (file.length() > 1024L * 1024L) file.writeText(file.readLines().takeLast(500).joinToString("\n", postfix = "\n"))
     }
     @Synchronized fun clear() { file.delete() }
+    @Synchronized fun importLegacyOnce(value: String) {
+        if (legacyMarker.exists()) return
+        if (value.isNotBlank() && events().isEmpty()) append(value)
+        legacyMarker.parentFile?.mkdirs()
+        legacyMarker.writeText("imported")
+    }
     private fun redact(value: String): String = Regex("(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|password|authorization|secret)(\\s*[:=]\\s*)([^\\s,;]+)")
         .replace(value) { it.groupValues[1] + it.groupValues[2] + "[REDACTED]" }
     @Synchronized fun events(): List<ActivityEvent> = if (!file.isFile) emptyList() else file.readLines().mapNotNull { row ->
@@ -72,6 +79,7 @@ internal class ActivityLogConsole(
     private val fullScreenAllowed: Boolean = true
 ) : LinearLayout(context) {
     private val adapter = EventAdapter()
+    private lateinit var eventList: RecyclerView
     private lateinit var count: TextView
     private lateinit var summary: TextView
     private lateinit var query: EditText
@@ -79,10 +87,7 @@ internal class ActivityLogConsole(
 
     init {
         orientation = VERTICAL
-        if (store.events().isEmpty()) {
-            val previousRootHistory = RootOperationLog.read(context)
-            if (previousRootHistory.isNotBlank()) store.append(previousRootHistory)
-        }
+        store.importLegacyOnce(RootOperationLog.read(context))
         setPadding(dp(12), dp(12), dp(12), dp(10))
         background = rounded("#171515", 14, "#302B2B")
         val heading = row()
@@ -116,10 +121,10 @@ internal class ActivityLogConsole(
             filters.addView(chip, LayoutParams(0, dp(32), 1f).apply { if (value != "ALL") marginStart = dp(5) })
         }
         addView(filters)
-        val list = RecyclerView(context).apply {
+        eventList = RecyclerView(context).apply {
             layoutManager = LinearLayoutManager(context); adapter = this@ActivityLogConsole.adapter; itemAnimator = null
         }
-        addView(list, LayoutParams(-1, dp(250)))
+        addView(eventList, if (fullScreenAllowed) LayoutParams(-1, dp(250)) else LayoutParams(-1, 0, 1f))
         val actions = row().apply { setPadding(0, dp(7), 0, 0) }
         addAction(actions, "Copy") { copy() }
         addAction(actions, "Export") { export() }
@@ -134,7 +139,12 @@ internal class ActivityLogConsole(
         refresh()
     }
 
-    fun append(value: String) { store.append(value); refresh() }
+    fun append(value: String) {
+        val followTail = ::eventList.isInitialized && !eventList.canScrollVertically(1)
+        store.append(value)
+        refresh()
+        if (followTail) eventList.post { if (adapter.itemCount > 0) eventList.scrollToPosition(adapter.itemCount - 1) }
+    }
     fun refresh() {
         if (!::count.isInitialized) return
         val all = store.events()
@@ -144,6 +154,7 @@ internal class ActivityLogConsole(
                 (term.isBlank() || it.raw.contains(term, true))
         }
         adapter.submit(visible)
+        if (all.isNotEmpty() && !eventList.canScrollVertically(1)) eventList.post { if (adapter.itemCount > 0) eventList.scrollToPosition(adapter.itemCount - 1) }
         count.text = all.size.toString() + " events"
         val errors = all.count { it.severity == EventSeverity.ERROR }
         val warnings = all.count { it.severity == EventSeverity.WARNING }
