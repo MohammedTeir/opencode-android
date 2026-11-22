@@ -1298,7 +1298,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun appendLog(message: String) = runOnUiThread {
-        if (::activityPanel.isInitialized) activityPanel.append(message)
+        if (::activityPanel.isInitialized) {
+            activityPanel.append(message)
+            val lower = message.lowercase()
+            val isFailure = listOf("failed", "failure", "fatal", "exception", "permission denied", "setup stopped", "could not").any { lower.contains(it) }
+            if (isFailure && activityPanel.visibility != View.VISIBLE) {
+                activityPanel.visibility = View.VISIBLE
+                if (::activityToggle.isInitialized) activityToggle.text = "Hide  ↑"
+            }
+        }
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
