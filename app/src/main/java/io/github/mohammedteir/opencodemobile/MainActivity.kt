@@ -122,7 +122,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (intent.action == OpenCodeEventNotifications.ACTION_OPEN_WORKSPACE) startServerAndOpen()
+        if (intent.action == OpenCodeEventNotifications.ACTION_OPEN_WORKSPACE && webView == null) startServerAndOpen()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
