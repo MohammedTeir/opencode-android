@@ -26,8 +26,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private enum class EventSeverity { SUCCESS, INFO, WARNING, ERROR }
-private data class ActivityEvent(val time: Long, val severity: EventSeverity, val title: String, val summary: String, val raw: String)
+internal enum class EventSeverity { SUCCESS, INFO, WARNING, ERROR }
+internal data class ActivityEvent(val time: Long, val severity: EventSeverity, val title: String, val summary: String, val raw: String)
 
 internal class ActivityLogStore(context: Context) {
     private val file = File(context.filesDir, "activity/activity.log")
@@ -76,6 +76,10 @@ internal class ActivityLogConsole(
 
     init {
         orientation = VERTICAL
+        if (store.events().isEmpty()) {
+            val previousRootHistory = RootOperationLog.read(context)
+            if (previousRootHistory.isNotBlank()) store.append(previousRootHistory)
+        }
         setPadding(dp(12), dp(12), dp(12), dp(10))
         background = rounded("#171515", 14, "#302B2B")
         val heading = row()
