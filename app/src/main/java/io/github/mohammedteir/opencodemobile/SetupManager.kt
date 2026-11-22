@@ -876,28 +876,22 @@ class SetupManager(private val context: Context) {
             context.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
         }.getOrNull()
         val activeNetwork = runCatching { connectivity?.activeNetwork }.getOrNull()
-        val dns = runCatching {
-            connectivity?.getLinkProperties(activeNetwork)?.dnsServers
-                ?.map { it.hostAddress.substringBefore('%') }
-                ?.filter { address ->
-                    runCatching {
-                        val parsed = java.net.InetAddress.getByName(address)
-                        !parsed.isAnyLocalAddress && !parsed.isLoopbackAddress &&
-                            !parsed.isLinkLocalAddress && !parsed.isMulticastAddress
-                    }.getOrDefault(false)
-                }
-                .orEmpty()
-        }.getOrDefault(emptyList())
-        val selectedDns = dns.distinct().ifEmpty { listOf("1.1.1.1", "8.8.8.8") }
+        // Share the validated active-network DNS snapshot with runtime PRoot launches.
+        // Never bypass a VPN/WARP resolver by silently substituting public DNS.
+        val selectedDns = AndroidDnsBootstrap.snapshot(context).dnsServers
         val etc = File(base, "etc").toPath()
         if (Files.isSymbolicLink(etc)) Files.delete(etc)
         Files.createDirectories(etc)
         val resolv = etc.resolve("resolv.conf")
-        Files.deleteIfExists(resolv)
-        Files.newOutputStream(resolv).use {
-            it.write((selectedDns.joinToString("\n") { address -> "nameserver $address" } + "\n").toByteArray())
+        if (selectedDns.isNotEmpty()) {
+            Files.deleteIfExists(resolv)
+            Files.newOutputStream(resolv).use {
+                it.write((selectedDns.joinToString("\n") { address -> "nameserver $address" } + "\n").toByteArray())
+            }
+            log("Rootfs DNS servers: ${selectedDns.joinToString(", ")}")
+        } else {
+            log("No usable DNS servers were advertised by Android; existing rootfs resolver configuration was preserved.")
         }
-        log("Rootfs DNS servers: ${selectedDns.joinToString(", ")}")
 
         // Android may resolve through its per-network resolver while direct UDP/53
         // queries from sandboxed child processes are blocked. Add a temporary hosts

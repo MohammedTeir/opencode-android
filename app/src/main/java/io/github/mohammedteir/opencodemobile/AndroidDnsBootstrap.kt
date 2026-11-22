@@ -33,7 +33,7 @@ object AndroidDnsBootstrap {
         val properties = runCatching { connectivity?.getLinkProperties(network) }.getOrNull()
         val dnsServers = properties?.dnsServers.orEmpty()
             .mapNotNull { address -> address.hostAddress?.substringBefore('%') }
-            .filter(::isUsableDnsAddress)
+            .filter(DnsAddressValidator::isUsable)
             .distinct()
         return Snapshot(
             networkAvailable = network != null,
@@ -98,9 +98,4 @@ object AndroidDnsBootstrap {
         return addresses.map { it.hostAddress.substringBefore('%') }.distinct()
     }
 
-    private fun isUsableDnsAddress(address: String): Boolean = runCatching {
-        val parsed = InetAddress.getByName(address)
-        !parsed.isAnyLocalAddress && !parsed.isLoopbackAddress &&
-            !parsed.isLinkLocalAddress && !parsed.isMulticastAddress
-    }.getOrDefault(false)
 }
