@@ -9,6 +9,9 @@ import java.net.InetAddress
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Keeps Debian's resolver aligned with Android's active network.
@@ -80,20 +83,31 @@ object AndroidDnsBootstrap {
         val configFile = File(rootfs, "root/.config/opencode/opencode.json")
         val configText = runCatching { if (configFile.isFile) configFile.readText() else null }.getOrNull()
         val endpointHosts = OpenCodeEndpointHosts.collect(configText)
-        var failedLookups = 0
-        val resolvedEntries = endpointHosts.flatMap { host ->
-            runCatching {
-                val addresses = if (network != null) network.getAllByName(host)
-                    else InetAddress.getAllByName(host)
-                addresses.filterNot { address ->
-                    address.isAnyLocalAddress || address.isLoopbackAddress ||
-                        address.isLinkLocalAddress || address.isMulticastAddress
-                }.map { address -> address.hostAddress.substringBefore('%') to host }
-            }.getOrElse {
-                failedLookups++
-                emptyList()
-            }
-        }.distinct()
+        val executor = Executors.newFixedThreadPool(minOf(4, endpointHosts.size.coerceAtLeast(1)))
+        val lookupResults = try {
+            executor.invokeAll(
+                endpointHosts.map { host ->
+                    Callable {
+                        val entries = runCatching {
+                            val addresses = if (network != null) network.getAllByName(host)
+                                else InetAddress.getAllByName(host)
+                            addresses.filterNot { address ->
+                                address.isAnyLocalAddress || address.isLoopbackAddress ||
+                                    address.isLinkLocalAddress || address.isMulticastAddress
+                            }.map { address -> address.hostAddress.substringBefore('%') to host }
+                        }.getOrDefault(emptyList())
+                        host to entries
+                    }
+                },
+                8,
+                TimeUnit.SECONDS
+            ).mapNotNull { future -> runCatching { future.get() }.getOrNull() }
+        } finally {
+            executor.shutdownNow()
+        }
+        val resolvedEntries = lookupResults.flatMap { it.second }.distinct()
+        val successfulHosts = lookupResults.filter { it.second.isNotEmpty() }.map { it.first }.toSet()
+        val failedLookups = endpointHosts.size - successfulHosts.size
 
         val hosts = etc.resolve("hosts")
         runCatching {
@@ -134,6 +148,7 @@ object AndroidDnsBootstrap {
 
     private fun writeAtomically(path: java.nio.file.Path, content: String) {
         val temporary = path.resolveSibling(path.fileName.toString() + ".opencode-tmp")
+        if (Files.isSymbolicLink(temporary)) Files.delete(temporary)
         Files.write(temporary, content.toByteArray(Charsets.UTF_8))
         try {
             Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
