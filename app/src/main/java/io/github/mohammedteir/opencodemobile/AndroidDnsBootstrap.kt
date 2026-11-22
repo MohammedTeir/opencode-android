@@ -141,10 +141,10 @@ object AndroidDnsBootstrap {
             // Replace every old nameserver (including manually configured public DNS),
             // while retaining search/domain/options and other administrator directives.
             val preservedLines = existing.lineSequence()
-                .filterNot { Regex("^\s*nameserver\s+", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+                .filterNot { Regex("^\\s*nameserver\\s+", RegexOption.IGNORE_CASE).containsMatchIn(it) }
                 .filterNot { it.trim() == RESOLVER_HEADER }
                 .toMutableList()
-            if (preservedLines.none { Regex("^\s*options\s+", RegexOption.IGNORE_CASE).containsMatchIn(it) }) {
+            if (preservedLines.none { Regex("^\\s*options\\s+", RegexOption.IGNORE_CASE).containsMatchIn(it) }) {
                 preservedLines += "options timeout:2 attempts:2 rotate"
             }
             val resolverContent = buildString {
