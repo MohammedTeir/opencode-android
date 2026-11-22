@@ -49,7 +49,6 @@ import java.util.concurrent.TimeUnit
 class MainActivity : ComponentActivity() {
     private lateinit var setup: SetupManager
     private lateinit var status: TextView
-    private lateinit var logs: TextView
     private lateinit var progress: ProgressBar
     private lateinit var setupButton: Button
     private lateinit var smokeButton: Button
@@ -68,7 +67,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var workspaceChooseButton: Button
     private lateinit var storageTestButton: Button
     private lateinit var serverButton: Button
-    private lateinit var activityPanel: ScrollView
+    private lateinit var activityPanel: ActivityLogConsole
     private lateinit var activityToggle: TextView
     private lateinit var content: LinearLayout
     private var webView: WebView? = null
@@ -405,7 +404,7 @@ class MainActivity : ComponentActivity() {
         activityHeader.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         activityToggle = text("Show  ↓", 11f, "#A9A2A2", true)
         activityHeader.addView(activityToggle)
-        val shareDiagnostics = text("Share report", 11f, "#D8D2D2", true).apply {
+        val shareDiagnostics = text("Crash report", 11f, "#D8D2D2", true).apply {
             setPadding(dp(12), dp(6), dp(2), dp(6))
             isClickable = true
             isFocusable = true
@@ -417,27 +416,17 @@ class MainActivity : ComponentActivity() {
             }
         }
         activityHeader.addView(shareDiagnostics)
-        activityPanel = ScrollView(this).apply {
-            isFillViewport = false
+        activityPanel = ActivityLogConsole(this).apply {
             visibility = View.GONE
-            background = rounded("#171515", 12, "#302B2B")
         }
-        logs = TextView(this).apply {
-            textSize = 11f
-            typeface = Typeface.create("monospace", Typeface.NORMAL)
-            setTextColor(Color.parseColor("#C7C0C0"))
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            setTextIsSelectable(true)
-            text = RootOperationLog.read(this@MainActivity).ifBlank { "No activity yet." }
-        }
-        activityPanel.addView(logs)
         activityHeader.setOnClickListener {
             val expanded = activityPanel.visibility != View.VISIBLE
             activityPanel.visibility = if (expanded) View.VISIBLE else View.GONE
             activityToggle.text = if (expanded) "Hide  ↑" else "Show  ↓"
+            if (expanded) activityPanel.refresh()
         }
         page.addView(activityHeader)
-        page.addView(activityPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132)))
+        page.addView(activityPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(390)))
 
         pageScroll.addView(page)
         content.addView(pageScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -901,7 +890,6 @@ class MainActivity : ComponentActivity() {
                 }
                 RootOperationLog.append(this@MainActivity, result.title, result.success, result.message + "\n" + result.output)
                 appendLog("[$label] ${result.message}\n")
-                if (result.output.isNotBlank()) appendLog(result.output + "\n")
                 // Keep results inline; detailed command output stays in the collapsible activity log.
                 rootStatus.text = result.message
                 if (result.output.isNotBlank()) appendLog("[Details] ${result.output}\n")
@@ -1310,10 +1298,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun appendLog(message: String) = runOnUiThread {
-        logs.append(message)
-        // Keep the setup screen calm; details remain available in Activity log.
-        if (activityPanel.visibility == View.VISIBLE) {
-            activityPanel.post { activityPanel.fullScroll(View.FOCUS_DOWN) }
+        if (::activityPanel.isInitialized) {
+            activityPanel.append(message)
+            val lower = message.lowercase()
+            val isFailure = listOf("failed", "failure", "fatal", "exception", "permission denied", "setup stopped", "could not").any { lower.contains(it) }
+            if (isFailure && activityPanel.visibility != View.VISIBLE) {
+                activityPanel.visibility = View.VISIBLE
+                if (::activityToggle.isInitialized) activityToggle.text = "Hide  ↑"
+            }
         }
     }
 
