@@ -1263,18 +1263,64 @@ class MainActivity : ComponentActivity() {
             settings.allowFileAccess = false
             settings.allowContentAccess = true
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            // OpenCode uses window.open() for some provider sign-in flows (for example Vercel).
+            // Route those popup navigations through Android's external browser as well.
+            settings.setSupportMultipleWindows(true)
+            settings.javaScriptCanOpenWindowsAutomatically = true
             webViewClient = object : WebViewClient() {
                 override fun onReceivedHttpAuthRequest(view: WebView, handler: HttpAuthHandler, host: String, realm: String) {
                     if (host == "127.0.0.1") handler.proceed("opencode", SecretStore.getOrCreate(this@MainActivity))
                     else handler.cancel()
                 }
+
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                    val uri = request.url
-                    val allowedOrigin = uri.scheme == "http" && uri.host == "127.0.0.1" && uri.port == 4096
-                    return !allowedOrigin
+                    return handleWorkspaceNavigation(request.url)
+                }
+
+                @Suppress("DEPRECATION")
+                override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                    return handleWorkspaceNavigation(Uri.parse(url))
                 }
             }
             webChromeClient = object : WebChromeClient() {
+                override fun onCreateWindow(
+                    view: WebView,
+                    isDialog: Boolean,
+                    isUserGesture: Boolean,
+                    resultMsg: android.os.Message
+                ): Boolean {
+                    if (!isUserGesture) return false
+
+                    val popup = WebView(this@MainActivity).apply {
+                        settings.javaScriptEnabled = true
+                        webViewClient = object : WebViewClient() {
+                            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                                val uri = request.url
+                                if (uri.toString() == "about:blank") return false
+                                return openExternalBrowser(uri)
+                            }
+
+                            @Suppress("DEPRECATION")
+                            override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+                                if (url == "about:blank") return false
+                                return openExternalBrowser(Uri.parse(url))
+                            }
+                        }
+                    }
+                    val transport = resultMsg.obj as? WebView.WebViewTransport ?: run {
+                        popup.destroy()
+                        return false
+                    }
+                    transport.webView = popup
+                    resultMsg.sendToTarget()
+                    return true
+                }
+
+                override fun onCloseWindow(window: WebView) {
+                    window.stopLoading()
+                    window.destroy()
+                }
+
                 override fun onShowFileChooser(view: WebView, callback: ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
                     fileChooser?.onReceiveValue(null)
                     fileChooser = callback
@@ -1296,6 +1342,37 @@ class MainActivity : ComponentActivity() {
         setWorkspaceImmersive(true)
         // Redeem the single-use pairing code; OpenCode sets a browser session cookie and redirects to the workspace.
         web.loadUrl("$SERVER_URL/auth/connect/$pairingCode")
+    }
+
+    /**
+     * Keep the local OpenCode UI in its embedded WebView and hand external web URLs
+     * to Android so the user's configured browser can complete provider sign-in.
+     */
+    private fun handleWorkspaceNavigation(uri: Uri): Boolean {
+        val isLocalWorkspace = uri.scheme == "http" &&
+            uri.host == "127.0.0.1" &&
+            uri.port == 4096
+        if (isLocalWorkspace) return false
+
+        // Do not let unknown/custom schemes escape the WebView without an explicit handler.
+        return openExternalBrowser(uri)
+    }
+
+    private fun openExternalBrowser(uri: Uri): Boolean {
+        if (uri.scheme != "http" && uri.scheme != "https") return true
+
+        return try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+            true
+        } catch (error: android.content.ActivityNotFoundException) {
+            Toast.makeText(this, "No browser is available to open this link", Toast.LENGTH_LONG).show()
+            appendLog("Could not open external URL: no Android browser handled $uri\n")
+            true
+        } catch (error: Exception) {
+            Toast.makeText(this, "Could not open link: ${error.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
+            appendLog("Could not open external URL: ${error.message ?: error.javaClass.simpleName}\n")
+            true
+        }
     }
 
     private fun showSetupAgain() {
