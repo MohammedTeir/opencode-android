@@ -1366,11 +1366,11 @@ class MainActivity : ComponentActivity() {
             true
         } catch (error: android.content.ActivityNotFoundException) {
             Toast.makeText(this, "No browser is available to open this link", Toast.LENGTH_LONG).show()
-            appendLog("Could not open external URL: no Android browser handled $uri\\n")
+            appendLog("Could not open external URL: no Android browser handled $uri\n")
             true
         } catch (error: Exception) {
             Toast.makeText(this, "Could not open link: ${error.message ?: "unknown error"}", Toast.LENGTH_LONG).show()
-            appendLog("Could not open external URL: ${error.message ?: error.javaClass.simpleName}\\n")
+            appendLog("Could not open external URL: ${error.message ?: error.javaClass.simpleName}\n")
             true
         }
     }
